@@ -1,8 +1,10 @@
-"""Tactical bot for the 15x15 five-in-a-row game."""
+"""Three-ply tactical bot for the 15x15 five-in-a-row game."""
 
 from __future__ import annotations
 
-BOT_NAME = "Klāvs v1"
+import time
+
+BOT_NAME = "Klāvs Top 1 (v2)"
 
 BOARD_SIZE = 15
 EMPTY = "_"
@@ -10,9 +12,15 @@ OTHER = {"X": "O", "O": "X"}
 DIRECTIONS = ((1, 0), (0, 1), (1, 1), (1, -1))
 
 _PATTERN_SCORES = (0, 1, 8, 80, 1_600, 2_000_000)
-_WIN_SCORE = 10_000_000
-_ROOT_WIDTH = 12
+_WIN_SCORE = 1_000_000_000_000
+_ROOT_WIDTH = 10
 _REPLY_WIDTH = 8
+_FOLLOW_WIDTH = 6
+_THINK_TIME = 0.80
+
+
+class _SearchTimeout(Exception):
+    pass
 
 
 def _inside(row: int, col: int) -> bool:
@@ -110,8 +118,14 @@ def _ordered_moves(
     board: list[list[str]], player: str, limit: int
 ) -> list[tuple[int, int]]:
     moves = _candidate_moves(board)
+    middle = BOARD_SIZE // 2
     moves.sort(
-        key=lambda move: _move_priority(board, move[0], move[1], player),
+        key=lambda move: (
+            _move_priority(board, move[0], move[1], player),
+            -abs(move[0] - middle) - abs(move[1] - middle),
+            -move[0],
+            -move[1],
+        ),
         reverse=True,
     )
     return moves[:limit]
@@ -146,8 +160,71 @@ def _position_score(board: list[list[str]], player: str) -> int:
     return totals[player] - totals[opponent]
 
 
+def _search(
+    board: list[list[str]],
+    player: str,
+    root_player: str,
+    depth: int,
+    alpha: int,
+    beta: int,
+    deadline: float,
+) -> int:
+    if time.perf_counter() >= deadline:
+        raise _SearchTimeout
+    if depth == 0:
+        return _position_score(board, root_player)
+
+    opponent = OTHER[player]
+    if _winning_moves(board, player):
+        return _WIN_SCORE if player == root_player else -_WIN_SCORE
+
+    opponent_wins = _winning_moves(board, opponent)
+    if len(opponent_wins) > 1:
+        return _WIN_SCORE if opponent == root_player else -_WIN_SCORE
+    if opponent_wins:
+        moves = opponent_wins
+    else:
+        width = _REPLY_WIDTH if depth >= 2 else _FOLLOW_WIDTH
+        moves = _ordered_moves(board, player, width)
+    if not moves:
+        return 0
+
+    maximizing = player == root_player
+    best_score = -_WIN_SCORE * 2 if maximizing else _WIN_SCORE * 2
+    for row, col in moves:
+        if time.perf_counter() >= deadline:
+            raise _SearchTimeout
+        board[row][col] = player
+        try:
+            if _winner_after(board, row, col, player):
+                score = _WIN_SCORE if maximizing else -_WIN_SCORE
+            else:
+                score = _search(
+                    board,
+                    opponent,
+                    root_player,
+                    depth - 1,
+                    alpha,
+                    beta,
+                    deadline,
+                )
+        finally:
+            board[row][col] = EMPTY
+
+        if maximizing:
+            best_score = max(best_score, score)
+            alpha = max(alpha, best_score)
+        else:
+            best_score = min(best_score, score)
+            beta = min(beta, best_score)
+        if beta <= alpha:
+            break
+    return best_score
+
+
 def get_move(board: list[list[str]], player: str) -> tuple[int, int]:
     """Return a strong legal move without changing the supplied board."""
+    deadline = time.perf_counter() + _THINK_TIME
     state = [row[:] for row in board]
     opponent = OTHER[player]
     candidates = _candidate_moves(state)
@@ -165,33 +242,33 @@ def get_move(board: list[list[str]], player: str) -> tuple[int, int]:
     root_moves = _ordered_moves(state, player, _ROOT_WIDTH)
     best_move = root_moves[0]
     best_score = -_WIN_SCORE * 2
+    alpha = -_WIN_SCORE * 2
 
-    for row, col in root_moves:
-        state[row][col] = player
-        if _winner_after(state, row, col, player):
-            state[row][col] = EMPTY
-            return (row, col)
-
-        replies = _winning_moves(state, opponent)
-        if replies:
-            score = -_WIN_SCORE
-        else:
-            reply_moves = _ordered_moves(state, opponent, _REPLY_WIDTH)
-            score = _position_score(state, player)
-
-            for reply_row, reply_col in reply_moves:
-                state[reply_row][reply_col] = opponent
-                if _winner_after(state, reply_row, reply_col, opponent):
-                    reply_score = -_WIN_SCORE
-                else:
-                    reply_score = _position_score(state, player)
-                state[reply_row][reply_col] = EMPTY
-                score = min(score, reply_score)
-
-        state[row][col] = EMPTY
-        if score > best_score:
-            best_score = score
-            best_move = (row, col)
+    try:
+        for row, col in root_moves:
+            if time.perf_counter() >= deadline:
+                raise _SearchTimeout
+            state[row][col] = player
+            try:
+                if _winner_after(state, row, col, player):
+                    return (row, col)
+                score = _search(
+                    state,
+                    opponent,
+                    player,
+                    2,
+                    alpha,
+                    _WIN_SCORE * 2,
+                    deadline,
+                )
+            finally:
+                state[row][col] = EMPTY
+            if score > best_score:
+                best_score = score
+                best_move = (row, col)
+            alpha = max(alpha, best_score)
+    except _SearchTimeout:
+        pass
 
     return best_move
 

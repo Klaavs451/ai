@@ -363,24 +363,41 @@ class TicTacToeGUI:
     ) -> None:
         self.root = root
         self.bot = bot
-        self._opponent_profiles = dict(opponent_profiles or {})
-        if opponent is not None:
-            self._opponent_profiles.setdefault(
-                "IQ 2 — vidējs",
-                opponent,
-            )
-        self._opponent_labels = list(self._opponent_profiles)
-        default_profile = next(
+        self._bot_profiles = dict(opponent_profiles or {})
+        if not any(profile is bot for profile in self._bot_profiles.values()):
+            self._bot_profiles[bot.BOT_NAME] = bot
+        if opponent is not None and not any(
+            profile is opponent for profile in self._bot_profiles.values()
+        ):
+            self._bot_profiles[opponent.BOT_NAME] = opponent
+        self._bot_labels = list(self._bot_profiles)
+        first_bot_label = next(
             (
                 label
-                for label in self._opponent_labels
-                if label.startswith("IQ 2")
+                for label in self._bot_labels
+                if self._bot_profiles[label] is bot
             ),
-            self._opponent_labels[0] if self._opponent_labels else "",
+            self._bot_labels[0] if self._bot_labels else "",
         )
-        self.opponent_choice = tk.StringVar(value=default_profile)
-        self.opponent_info = tk.StringVar()
-        self.opponent = self._opponent_profiles.get(default_profile, opponent)
+        second_bot_label = next(
+            (
+                label
+                for label in self._bot_labels
+                if self._bot_profiles[label] is not bot
+                and label.startswith("TOP 2")
+            ),
+            next(
+                (
+                    label
+                    for label in self._bot_labels
+                    if self._bot_profiles[label] is not bot
+                ),
+                first_bot_label,
+            ),
+        )
+        self.bot_a_choice = tk.StringVar(value=first_bot_label)
+        self.bot_b_choice = tk.StringVar(value=second_bot_label)
+        self.battle_info = tk.StringVar()
         self.board = make_board()
         self.phase = "start"
         self.human_color: str | None = None
@@ -388,7 +405,7 @@ class TicTacToeGUI:
         self.current_symbol = "X"
         self.opening_index = 0
         self._battle_players: dict[str, ModuleType] | None = None
-        self._student_starts_next = True
+        self._bot_a_starts_next = True
         self._hover_cell: tuple[int, int] | None = None
         self._last_move: tuple[int, int] | None = None
         self.status = tk.StringVar(value="Izvēlies, kurš sāks. Uzvar pieci pēc kārtas.")
@@ -508,31 +525,50 @@ class TicTacToeGUI:
             command=self.start_bot_first,
             style="Secondary.TButton",
         ).pack(fill="x", pady=3)
-        if self._opponent_profiles:
+        if self._bot_profiles:
             ttk.Label(
                 self.start_frame,
-                text="BOTU CĪŅAS GRŪTĪBA",
+                text="IZVĒLIES, KURI BOTS AR KURU CĪNĀS",
                 font=("Segoe UI", 9, "bold"),
             ).pack(anchor="w", pady=(10, 4))
-            profile_picker = ttk.Combobox(
+            ttk.Label(
                 self.start_frame,
-                textvariable=self.opponent_choice,
-                values=self._opponent_labels,
+                text="Bots A",
+            ).pack(anchor="w")
+            bot_a_picker = ttk.Combobox(
+                self.start_frame,
+                textvariable=self.bot_a_choice,
+                values=self._bot_labels,
                 state="readonly",
                 style="Bot.TCombobox",
             )
-            profile_picker.pack(fill="x", pady=(0, 4))
-            profile_picker.bind(
-                "<<ComboboxSelected>>", self._on_opponent_choice
+            bot_a_picker.pack(fill="x", pady=(0, 4))
+            bot_a_picker.bind(
+                "<<ComboboxSelected>>", self._on_battle_selection
             )
             ttk.Label(
                 self.start_frame,
-                textvariable=self.opponent_info,
+                text="Bots B",
+            ).pack(anchor="w")
+            bot_b_picker = ttk.Combobox(
+                self.start_frame,
+                textvariable=self.bot_b_choice,
+                values=self._bot_labels,
+                state="readonly",
+                style="Bot.TCombobox",
+            )
+            bot_b_picker.pack(fill="x", pady=(0, 4))
+            bot_b_picker.bind(
+                "<<ComboboxSelected>>", self._on_battle_selection
+            )
+            ttk.Label(
+                self.start_frame,
+                textvariable=self.battle_info,
                 wraplength=275,
                 justify="left",
                 font=("Segoe UI", 8),
             ).pack(anchor="w", pady=(0, 5))
-            self._on_opponent_choice()
+            self._on_battle_selection()
             ttk.Button(
                 self.start_frame,
                 text="Botu savstarpējā cīņa",
@@ -775,35 +811,31 @@ class TicTacToeGUI:
             ]
         )
 
-    def _on_opponent_choice(self, _event: tk.Event | None = None) -> None:
-        selected = self._opponent_profiles.get(self.opponent_choice.get())
-        if selected is None:
+    def _on_battle_selection(self, _event: tk.Event | None = None) -> None:
+        bot_a = self._bot_profiles.get(self.bot_a_choice.get())
+        bot_b = self._bot_profiles.get(self.bot_b_choice.get())
+        if bot_a is None or bot_b is None:
             raise ValueError("Izvēlētais botu profils nav pieejams.")
-        self.opponent = selected
-
-        if self.opponent_choice.get().startswith("IQ 1"):
-            description = "Viegls: vienkāršas izvēles, bet bloķē tūlītēju uzvaru."
-        elif self.opponent_choice.get().startswith("IQ 2"):
-            description = "Vidējs: GreedyAI 2 izmanto gājienu vērtēšanu."
+        if bot_a is bot_b:
+            description = f"{bot_a.BOT_NAME} spēlē pret sevi."
         else:
-            description = "Saglabātā Klāva v1 versija salīdzināšanai ar nākamo."
-        self.opponent_info.set(
-            f"Pretinieks: {selected.BOT_NAME}. {description} "
-            "IQ ir grūtības pakāpe, nevis reāls IQ mērījums."
-        )
+            description = (
+                f"{self.bot_a_choice.get()} pret {self.bot_b_choice.get()}."
+            )
+        self.battle_info.set(f"{description} TOP secība ir salīdzināšanai.")
 
     def start_bot_battle(self) -> None:
-        selected_opponent = self._opponent_profiles.get(self.opponent_choice.get())
-        if selected_opponent is None:
-            raise RuntimeError("Nav izvēlēts pieejams pretinieka bots.")
-        self.opponent = selected_opponent
+        bot_a = self._bot_profiles.get(self.bot_a_choice.get())
+        bot_b = self._bot_profiles.get(self.bot_b_choice.get())
+        if bot_a is None or bot_b is None:
+            raise RuntimeError("Nav izvēlēti divi pieejami boti.")
 
         self.reset(keep_start_buttons=False)
-        if self._student_starts_next:
-            first_bot, second_bot = self.bot, selected_opponent
+        if self._bot_a_starts_next:
+            first_bot, second_bot = bot_a, bot_b
         else:
-            first_bot, second_bot = selected_opponent, self.bot
-        self._student_starts_next = not self._student_starts_next
+            first_bot, second_bot = bot_b, bot_a
+        self._bot_a_starts_next = not self._bot_a_starts_next
 
         opening = first_bot.swap2_propose(self.board)
         apply_bot_opening(self.board, opening, 3)
@@ -1013,9 +1045,10 @@ def main() -> None:
     )
     previous_bot = load_bot(BOT_V1_RELATIVE_PATH, "previous_student_bot")
     opponent_profiles = {
-        "IQ 1 — viegls": easy_opponent,
-        "IQ 2 — vidējs": opponent,
-        "Klāvs v1 — iepriekšējā versija": previous_bot,
+        "TOP 1 — Klāvs v2 (aktīvais)": bot,
+        "TOP 2 — Klāvs v1": previous_bot,
+        "TOP 3 — GreedyAI 2": opponent,
+        "TOP 4 — IQ 1": easy_opponent,
     }
     root = tk.Tk()
     TicTacToeGUI(root, bot, opponent, opponent_profiles)
