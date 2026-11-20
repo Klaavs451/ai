@@ -332,9 +332,10 @@ class TicTacToeGUI:
         self.board = make_board()
         self.phase = "start"
         self.human_color: str | None = None
+        self.bot_color: str | None = None
         self.current_symbol = "X"
         self.opening_index = 0
-        self.status = tk.StringVar(value="Izvēlies, kurš veiks Swap2 sākuma gājienu.")
+        self.status = tk.StringVar(value="Izvēlies, kurš sāks. Uzvar pieci pēc kārtas.")
 
         root.title("Pieci pēc kārtas — spēle pret botu")
         root.minsize(1000, 700)
@@ -365,18 +366,29 @@ class TicTacToeGUI:
             textvariable=self.status,
             wraplength=300,
             justify="left",
+            font=("Segoe UI", 11, "bold"),
         ).pack(anchor="w", pady=(0, 14))
+        legend = ttk.Frame(panel)
+        legend.pack(anchor="w", pady=(0, 12))
+        ttk.Label(
+            legend, text="X", foreground="#174f8a", font=("Segoe UI", 12, "bold")
+        ).pack(side="left")
+        ttk.Label(legend, text=" — zilais").pack(side="left")
+        ttk.Label(
+            legend, text="O", foreground="#a32d2d", font=("Segoe UI", 12, "bold")
+        ).pack(side="left", padx=(12, 0))
+        ttk.Label(legend, text=" — sarkanais").pack(side="left")
 
         self.start_frame = ttk.LabelFrame(panel, text="Jauna spēle", padding=10)
         self.start_frame.pack(fill="x", pady=(0, 10))
         ttk.Button(
             self.start_frame,
-            text="Es veicu sākuma gājienu",
+            text="Es sāku: lieku 2 X un 1 O",
             command=self.start_human_first,
         ).pack(fill="x", pady=3)
         ttk.Button(
             self.start_frame,
-            text="Bots veic sākuma gājienu",
+            text="Bots sāk: izvēlos X/O vai pievienoju figūras",
             command=self.start_bot_first,
         ).pack(fill="x", pady=3)
 
@@ -388,12 +400,15 @@ class TicTacToeGUI:
         ttk.Label(
             panel,
             text=(
-                "Lai veiktu gājienu, klikšķini uz brīvas rūtiņas. "
-                "Koordinātas uz laukuma sākas ar 0. Uzvar pieci pēc kārtas."
+                "Spēle ir 15 x 15 (nevis 3 x 3). Mērķis: salikt 5 vienādus "
+                "simbolus horizontāli, vertikāli vai pa diagonāli.\n\n"
+                "Klikšķini uz brīva līniju krustpunkta. Cipari augšā ir "
+                "kolonnas, kreisajā pusē — rindas (0–14)."
             ),
             wraplength=300,
             justify="left",
         ).pack(anchor="w")
+        self._clear_actions()
         self._render_board()
 
     def _render_board(self) -> None:
@@ -498,7 +513,10 @@ class TicTacToeGUI:
                 self._after_human_proposal()
             else:
                 next_symbol = ("X", "X", "O")[self.opening_index]
-                self.status.set(f"Novieto nākamo sākuma figūru: {next_symbol}.")
+                self.status.set(
+                    f"Sākuma figūra {self.opening_index + 1}/3: "
+                    f"klikšķini, lai novietotu {next_symbol}."
+                )
             return
 
         if self.phase == "human_place_two":
@@ -508,7 +526,7 @@ class TicTacToeGUI:
             if self.opening_index == 2:
                 self._after_human_place_two()
             else:
-                self.status.set("Tagad novieto O.")
+                self.status.set("Papildu figūra 2/2: klikšķini, lai novietotu O.")
             return
 
         if self.phase == "play" and self.current_symbol == self.human_color:
@@ -518,7 +536,7 @@ class TicTacToeGUI:
     def start_human_first(self) -> None:
         self.reset(keep_start_buttons=False)
         self.phase = "human_propose"
-        self.status.set("Novieto divus X, pēc tam vienu O, klikšķinot uz laukuma.")
+        self.status.set("Sākuma figūra 1/3: klikšķini, lai novietotu pirmo X.")
         self.start_frame.pack_forget()
 
     def start_bot_first(self) -> None:
@@ -531,13 +549,15 @@ class TicTacToeGUI:
             raise ValueError("Bot opening must contain two X stones and one O stone")
         self._render_board()
         self.phase = "human_take_action"
-        self.status.set("Izvēlies, kuru krāsu ņemt, vai novieto vēl divas figūras.")
+        self.status.set(
+            "Bots nolika 2 X un 1 O. Izvēlies X/O vai pievieno vēl X un O."
+        )
         self.start_frame.pack_forget()
         self._show_actions(
             [
-                ("Ņemt X", lambda: self._take_color("X")),
-                ("Ņemt O", lambda: self._take_color("O")),
-                ("Novietot X un O", self._start_human_place_two),
+                ("Ņemt X (tu spēlē X)", lambda: self._take_color("X")),
+                ("Ņemt O (tu spēlē O)", lambda: self._take_color("O")),
+                ("Pievienot vēl X un O", self._start_human_place_two),
             ]
         )
 
@@ -556,7 +576,7 @@ class TicTacToeGUI:
         apply_bot_opening(self.board, moves, 2)
         self._render_board()
         self.phase = "human_choose_color"
-        self.status.set("Izvēlies, ar kuru krāsu turpināsi.")
+        self.status.set("Bots pievienoja X un O. Izvēlies savu krāsu; bots dabūs otru.")
         self._show_actions(
             [
                 ("Turpināt ar X", lambda: self._choose_human_color("X")),
@@ -568,7 +588,7 @@ class TicTacToeGUI:
         self.phase = "human_place_two"
         self.opening_index = 0
         self._clear_actions()
-        self.status.set("Novieto vienu X un pēc tam vienu O.")
+        self.status.set("Papildu figūra 1/2: klikšķini, lai novietotu X.")
 
     def _after_human_place_two(self) -> None:
         bot_color = self.bot.swap2_final_choice(self.board)
@@ -584,21 +604,25 @@ class TicTacToeGUI:
 
     def _begin_game(self, human_color: str, next_symbol: str) -> None:
         self.human_color = human_color
+        self.bot_color = "O" if human_color == "X" else "X"
         self.current_symbol = next_symbol
         self.phase = "play"
         self._clear_actions()
-        self.status.set(
-            f"Tava krāsa: {human_color}. Nākamais gājiens: {next_symbol}."
-        )
         self._advance_turn()
 
     def _advance_turn(self) -> None:
         if self.phase != "play":
             return
         if self.current_symbol == self.human_color:
-            self.status.set(f"Tavs gājiens ({self.current_symbol}). Klikšķini laukumā.")
+            self.status.set(
+                f"Tu: {self.human_color}; bots: {self.bot_color}. "
+                f"Tavs {self.current_symbol} gājiens — klikšķini uz brīva krustpunkta."
+            )
         else:
-            self.status.set(f"Bots domā ({self.current_symbol})...")
+            self.status.set(
+                f"Tu: {self.human_color}; bots: {self.bot_color}. "
+                f"Bots domā ({self.current_symbol})..."
+            )
             self.root.after(100, self._bot_move)
 
     def _bot_move(self) -> None:
@@ -634,12 +658,13 @@ class TicTacToeGUI:
         self.board = make_board()
         self.phase = "start"
         self.human_color = None
+        self.bot_color = None
         self.current_symbol = "X"
         self.opening_index = 0
         self._clear_actions()
         if keep_start_buttons:
             self.start_frame.pack(fill="x", pady=(0, 10))
-        self.status.set("Izvēlies, kurš veiks Swap2 sākuma gājienu.")
+        self.status.set("Izvēlies, kurš sāks. Uzvar pieci pēc kārtas.")
         self._render_board()
 
 
