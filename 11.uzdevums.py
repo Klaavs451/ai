@@ -13,27 +13,47 @@ from types import ModuleType
 
 BOARD_SIZE = 15
 EMPTY = "_"
-CELL_SIZE = 40
-BOARD_MARGIN = 32
+CELL_SIZE = 36
+BOARD_MARGIN = 34
 BOARD_PIXELS = BOARD_MARGIN * 2 + CELL_SIZE * BOARD_SIZE
+COLORS = {
+    "background": "#0B1220",
+    "panel": "#111C2E",
+    "card": "#172438",
+    "border": "#26364D",
+    "text": "#E8EEF7",
+    "muted": "#9BAAC0",
+    "accent": "#5B8CFF",
+    "accent_hover": "#4778E8",
+    "board": "#F1E3C5",
+    "board_alt": "#EBD9B6",
+    "grid": "#BDA779",
+    "x": "#3478F6",
+    "o": "#E35F71",
+    "highlight": "#F0A83B",
+}
 BOT_RELATIVE_PATH = Path(
     "tic-tac-toe",
     "studenti",
     "klavs_barons-kaupa",
     "bot.py",
 )
+OPPONENT_RELATIVE_PATH = Path("tic-tac-toe", "Test2", "bot.py")
 
 
-def load_bot() -> ModuleType:
+def load_bot(
+    relative_path: Path = BOT_RELATIVE_PATH,
+    module_name: str = "student_bot",
+) -> ModuleType:
     """Atrod un ielādē bota moduli no projekta mapes."""
     project_dir = Path(__file__).resolve().parent
-    candidates = (project_dir / BOT_RELATIVE_PATH, project_dir / "ai" / BOT_RELATIVE_PATH)
+    candidates = (project_dir / relative_path, project_dir / "ai" / relative_path)
     bot_path = next((path for path in candidates if path.is_file()), None)
     if bot_path is None:
         checked_paths = "\n".join(str(path) for path in candidates)
         raise FileNotFoundError(f"Botu neatradu. Pārbaudītās vietas:\n{checked_paths}")
 
-    spec = importlib.util.spec_from_file_location("student_bot", bot_path)
+    spec = importlib.util.spec_from_file_location(module_name, bot_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Neizdevās ielādēt botu no {bot_path}")
 
@@ -326,39 +346,101 @@ def play_game(bot: ModuleType) -> None:
 
 
 class TicTacToeGUI:
-    def __init__(self, root: tk.Tk, bot: ModuleType) -> None:
+    def __init__(
+        self,
+        root: tk.Tk,
+        bot: ModuleType,
+        opponent: ModuleType | None = None,
+    ) -> None:
         self.root = root
         self.bot = bot
+        self.opponent = opponent
         self.board = make_board()
         self.phase = "start"
         self.human_color: str | None = None
         self.bot_color: str | None = None
         self.current_symbol = "X"
         self.opening_index = 0
+        self._battle_players: dict[str, ModuleType] | None = None
+        self._next_battle_starter = bot
+        self._hover_cell: tuple[int, int] | None = None
+        self._last_move: tuple[int, int] | None = None
         self.status = tk.StringVar(value="Izvēlies, kurš sāks. Uzvar pieci pēc kārtas.")
 
         root.title("Pieci pēc kārtas — spēle pret botu")
-        root.minsize(1000, 700)
-        main = ttk.Frame(root, padding=12)
+        root.configure(background=COLORS["background"])
+        root.minsize(1060, 730)
+        root.geometry("1100x760")
+        style = ttk.Style(root)
+        style.theme_use("clam")
+        style.configure(
+            "TFrame",
+            background=COLORS["background"],
+        )
+        style.configure(
+            "TLabel",
+            background=COLORS["background"],
+            foreground=COLORS["text"],
+        )
+        style.configure(
+            "TLabelframe",
+            background=COLORS["panel"],
+            foreground=COLORS["text"],
+            bordercolor=COLORS["border"],
+        )
+        style.configure(
+            "TLabelframe.Label",
+            background=COLORS["panel"],
+            foreground=COLORS["muted"],
+            font=("Segoe UI", 9, "bold"),
+        )
+        style.configure(
+            "Primary.TButton",
+            background=COLORS["accent"],
+            foreground="#FFFFFF",
+            borderwidth=0,
+            padding=(12, 10),
+            font=("Segoe UI", 10, "bold"),
+        )
+        style.map(
+            "Primary.TButton",
+            background=[("active", COLORS["accent_hover"])],
+        )
+        style.configure(
+            "Secondary.TButton",
+            background=COLORS["card"],
+            foreground=COLORS["text"],
+            borderwidth=0,
+            padding=(12, 10),
+            font=("Segoe UI", 10, "bold"),
+        )
+        style.map(
+            "Secondary.TButton",
+            background=[("active", COLORS["border"])],
+        )
+        main = ttk.Frame(root, padding=18)
         main.pack(fill="both", expand=True)
 
         self.canvas = tk.Canvas(
             main,
             width=BOARD_PIXELS,
             height=BOARD_PIXELS,
-            background="#e5c27b",
+            background=COLORS["board"],
             highlightthickness=0,
+            cursor="hand2",
         )
         self.canvas.pack(side="left", padx=(0, 18))
         self.canvas.bind("<Button-1>", self._on_board_click)
+        self.canvas.bind("<Motion>", self._on_board_motion)
+        self.canvas.bind("<Leave>", self._on_board_leave)
 
         panel = ttk.Frame(main, width=320)
         panel.pack(side="left", fill="y")
         panel.pack_propagate(False)
         ttk.Label(
             panel,
-            text=f"Pieci pēc kārtas\nPretinieks: {self.bot.BOT_NAME}",
-            font=("Segoe UI", 16, "bold"),
+            text=f"PIECI PĒC KĀRTAS\nPretinieks: {self.bot.BOT_NAME}",
+            font=("Segoe UI", 17, "bold"),
             justify="left",
         ).pack(anchor="w", pady=(8, 14))
         ttk.Label(
@@ -383,29 +465,43 @@ class TicTacToeGUI:
         self.start_frame.pack(fill="x", pady=(0, 10))
         ttk.Button(
             self.start_frame,
-            text="Es sāku: lieku 2 X un 1 O",
+            text="Es sāku",
             command=self.start_human_first,
+            style="Primary.TButton",
         ).pack(fill="x", pady=3)
         ttk.Button(
             self.start_frame,
-            text="Bots sāk: izvēlos X/O vai pievienoju figūras",
+            text="Bots sāk",
             command=self.start_bot_first,
+            style="Secondary.TButton",
         ).pack(fill="x", pady=3)
+        if opponent is not None:
+            ttk.Button(
+                self.start_frame,
+                text="Botu savstarpējā cīņa",
+                command=self.start_bot_battle,
+                style="Secondary.TButton",
+            ).pack(fill="x", pady=3)
 
         self.action_frame = ttk.LabelFrame(panel, text="Swap2 izvēle", padding=10)
         self.action_frame.pack(fill="x", pady=(0, 10))
-        ttk.Button(panel, text="Sākt no jauna", command=self.reset).pack(
+        ttk.Button(
+            panel,
+            text="Sākt no jauna",
+            command=self.reset,
+            style="Secondary.TButton",
+        ).pack(
             fill="x", pady=(4, 10)
         )
         ttk.Label(
             panel,
             text=(
-                "Spēle ir 15 x 15 (nevis 3 x 3). Mērķis: salikt 5 vienādus "
-                "simbolus horizontāli, vertikāli vai pa diagonāli.\n\n"
-                "Klikšķini uz brīvas rūtiņas. Cipari augšā ir "
-                "kolonnas, kreisajā pusē — rindas (0–14)."
+                "Mērķis: salikt 5 savas krāsas figūras pēc kārtas — "
+                "horizontāli, vertikāli vai pa diagonāli.\n\n"
+                "Klikšķini uz brīvas rūtiņas. Skaitļi norāda rindas "
+                "un kolonnas."
             ),
-            wraplength=300,
+            wraplength=280,
             justify="left",
         ).pack(anchor="w")
         self._clear_actions()
@@ -415,17 +511,65 @@ class TicTacToeGUI:
         self.canvas.delete("all")
         first = BOARD_MARGIN
         last = first + CELL_SIZE * BOARD_SIZE
+        for row in range(BOARD_SIZE):
+            for col in range(BOARD_SIZE):
+                x1 = first + col * CELL_SIZE
+                y1 = first + row * CELL_SIZE
+                fill = (
+                    COLORS["board"]
+                    if (row + col) % 2 == 0
+                    else COLORS["board_alt"]
+                )
+                self.canvas.create_rectangle(
+                    x1,
+                    y1,
+                    x1 + CELL_SIZE,
+                    y1 + CELL_SIZE,
+                    fill=fill,
+                    outline=fill,
+                )
+
         for index in range(BOARD_SIZE + 1):
             position = first + index * CELL_SIZE
-            self.canvas.create_line(first, position, last, position, fill="#493b28")
-            self.canvas.create_line(position, first, position, last, fill="#493b28")
+            self.canvas.create_line(
+                first, position, last, position, fill=COLORS["grid"], width=1
+            )
+            self.canvas.create_line(
+                position, first, position, last, fill=COLORS["grid"], width=1
+            )
         for index in range(BOARD_SIZE):
             position = first + (index + 0.5) * CELL_SIZE
             self.canvas.create_text(
-                position, first - 17, text=str(index), fill="#30291f"
+                position,
+                first - 18,
+                text=str(index),
+                fill=COLORS["muted"],
+                font=("Segoe UI", 8),
             )
             self.canvas.create_text(
-                first - 17, position, text=str(index), fill="#30291f"
+                first - 18,
+                position,
+                text=str(index),
+                fill=COLORS["muted"],
+                font=("Segoe UI", 8),
+            )
+
+        for selected, color in (
+            (self._last_move, COLORS["accent"]),
+            (self._hover_cell, COLORS["highlight"]),
+        ):
+            if selected is None:
+                continue
+            row, col = selected
+            x1 = first + col * CELL_SIZE + 2
+            y1 = first + row * CELL_SIZE + 2
+            self.canvas.create_rectangle(
+                x1,
+                y1,
+                x1 + CELL_SIZE - 4,
+                y1 + CELL_SIZE - 4,
+                outline=color,
+                width=2,
             )
 
         for row in range(BOARD_SIZE):
@@ -436,33 +580,46 @@ class TicTacToeGUI:
                 x = first + (col + 0.5) * CELL_SIZE
                 y = first + (row + 0.5) * CELL_SIZE
                 if symbol == "X":
-                    radius = 12
+                    radius = 10
                     self.canvas.create_line(
                         x - radius,
                         y - radius,
                         x + radius,
                         y + radius,
-                        fill="#174f8a",
+                        fill=COLORS["x"],
                         width=4,
+                        capstyle=tk.ROUND,
                     )
                     self.canvas.create_line(
                         x - radius,
                         y + radius,
                         x + radius,
                         y - radius,
-                        fill="#174f8a",
+                        fill=COLORS["x"],
                         width=4,
+                        capstyle=tk.ROUND,
                     )
                 else:
-                    radius = 13
+                    radius = 10
                     self.canvas.create_oval(
                         x - radius,
                         y - radius,
                         x + radius,
                         y + radius,
-                        outline="#a32d2d",
+                        outline=COLORS["o"],
                         width=4,
                     )
+
+    def _on_board_motion(self, event: tk.Event) -> None:
+        cell = self._cell_from_click(event)
+        if cell != self._hover_cell:
+            self._hover_cell = cell
+            self._render_board()
+
+    def _on_board_leave(self, _event: tk.Event) -> None:
+        if self._hover_cell is not None:
+            self._hover_cell = None
+            self._render_board()
 
     def _show_actions(
         self, actions: list[tuple[str, Callable[[], None]]]
@@ -478,6 +635,7 @@ class TicTacToeGUI:
                 self.action_frame,
                 text=label,
                 command=callback,
+                style="Secondary.TButton",
             ).pack(fill="x", pady=3)
 
     def _clear_actions(self) -> None:
@@ -485,6 +643,7 @@ class TicTacToeGUI:
 
     def _put(self, row: int, col: int, symbol: str) -> None:
         place_stone(self.board, row, col, symbol)
+        self._last_move = (row, col)
         self._render_board()
 
     def _cell_from_click(self, event: tk.Event) -> tuple[int, int] | None:
@@ -559,6 +718,59 @@ class TicTacToeGUI:
             ]
         )
 
+    def start_bot_battle(self) -> None:
+        if self.opponent is None:
+            raise RuntimeError("Nav ielādēts otrs bots botu cīņai.")
+
+        self.reset(keep_start_buttons=False)
+        first_bot = self._next_battle_starter
+        second_bot = self.opponent if first_bot is self.bot else self.bot
+        self._next_battle_starter = second_bot
+
+        opening = first_bot.swap2_propose(self.board)
+        apply_bot_opening(self.board, opening, 3)
+        if sum(symbol == "X" for _, _, symbol in opening) != 2 or sum(
+            symbol == "O" for _, _, symbol in opening
+        ) != 1:
+            raise ValueError("Bot opening must contain two X stones and one O stone")
+        response = second_bot.swap2_respond(self.board)
+        action = response.get("action")
+
+        if action in ("TAKE_X", "TAKE_O"):
+            second_color = action[-1]
+            first_color = "O" if second_color == "X" else "X"
+            self.current_symbol = "O"
+            opening_result = f"{second_bot.BOT_NAME} izvēlējās {second_color}."
+        elif action == "PLACE_TWO":
+            moves = response.get("moves")
+            if not isinstance(moves, list):
+                raise ValueError("PLACE_TWO atbildei jāietver gājienu saraksts.")
+            if {symbol for _, _, symbol in moves} != {"X", "O"}:
+                raise ValueError("PLACE_TWO jāietver viena X un viena O figūra.")
+            apply_bot_opening(self.board, moves, 2)
+            first_color = first_bot.swap2_final_choice(self.board)
+            if first_color not in ("X", "O"):
+                raise ValueError(
+                    f"Bot returned an invalid color: {first_color!r}"
+                )
+            second_color = "O" if first_color == "X" else "X"
+            self.current_symbol = "X"
+            opening_result = f"{first_bot.BOT_NAME} izvēlējās {first_color}."
+        else:
+            raise ValueError(f"Bot returned an invalid Swap2 action: {action!r}")
+
+        self._battle_players = {
+            first_color: first_bot,
+            second_color: second_bot,
+        }
+        self.phase = "bot_battle"
+        self._render_board()
+        self.status.set(
+            f"{first_bot.BOT_NAME} pret {second_bot.BOT_NAME}. "
+            f"Swap2: {opening_result} Sākas spēle."
+        )
+        self._advance_turn()
+
     def _after_human_proposal(self) -> None:
         response = self.bot.swap2_respond(self.board)
         action = response.get("action")
@@ -609,6 +821,15 @@ class TicTacToeGUI:
         self._advance_turn()
 
     def _advance_turn(self) -> None:
+        if self.phase == "bot_battle":
+            if self._battle_players is None:
+                raise RuntimeError("Botu cīņai nav piešķirti spēlētāji.")
+            player = self._battle_players[self.current_symbol]
+            self.status.set(
+                f"{player.BOT_NAME} domā ({self.current_symbol})..."
+            )
+            self.root.after(500, self._bot_battle_move)
+            return
         if self.phase != "play":
             return
         if self.current_symbol == self.human_color:
@@ -637,10 +858,36 @@ class TicTacToeGUI:
         self._put(row, col, self.current_symbol)
         self._finish_move(row, col, self.current_symbol)
 
+    def _bot_battle_move(self) -> None:
+        if self.phase != "bot_battle" or self._battle_players is None:
+            return
+        player = self._battle_players[self.current_symbol]
+        move = player.get_move(self.board, self.current_symbol)
+        if (
+            not isinstance(move, tuple)
+            or len(move) != 2
+            or not all(isinstance(value, int) for value in move)
+        ):
+            raise ValueError(f"Bot returned an invalid move: {move!r}")
+        row, col = move
+        if not (0 <= row < BOARD_SIZE and 0 <= col < BOARD_SIZE):
+            raise ValueError(f"Bot returned an out-of-range move: {move!r}")
+        if self.board[row][col] != EMPTY:
+            raise ValueError(f"Bot returned an occupied square: {move!r}")
+        self._put(row, col, self.current_symbol)
+        self._finish_move(row, col, self.current_symbol)
+
     def _finish_move(self, row: int, col: int, symbol: str) -> None:
         if winner_after(self.board, row, col, symbol):
             self.phase = "game_over"
-            result = "Tu uzvarēji!" if symbol == self.human_color else "Bots uzvarēja."
+            if self._battle_players is not None:
+                result = f"{self._battle_players[symbol].BOT_NAME} uzvarēja!"
+            else:
+                result = (
+                    "Tu uzvarēji!"
+                    if symbol == self.human_color
+                    else "Bots uzvarēja."
+                )
             self.status.set(result)
             messagebox.showinfo("Spēle beigusies", result, parent=self.root)
             return
@@ -659,6 +906,9 @@ class TicTacToeGUI:
         self.bot_color = None
         self.current_symbol = "X"
         self.opening_index = 0
+        self._last_move = None
+        self._hover_cell = None
+        self._battle_players = None
         self._clear_actions()
         if keep_start_buttons:
             self.start_frame.pack(fill="x", pady=(0, 10))
@@ -678,8 +928,9 @@ def main() -> None:
     if "--console" in sys.argv:
         play_game(bot)
         return
+    opponent = load_bot(OPPONENT_RELATIVE_PATH, "opponent_bot")
     root = tk.Tk()
-    TicTacToeGUI(root, bot)
+    TicTacToeGUI(root, bot, opponent)
     root.mainloop()
 
 
