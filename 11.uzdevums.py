@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import importlib.util
 import sys
+import tkinter as tk
 import time
 from pathlib import Path
+from tkinter import messagebox, ttk
 from types import ModuleType
 
 BOARD_SIZE = 15
 EMPTY = "_"
+CELL_SIZE = 40
+BOARD_MARGIN = 32
+BOARD_PIXELS = BOARD_MARGIN * 2 + CELL_SIZE * (BOARD_SIZE - 1)
 BOT_RELATIVE_PATH = Path(
     "tic-tac-toe",
     "studenti",
@@ -319,6 +325,324 @@ def play_game(bot: ModuleType) -> None:
         current_symbol = "O" if current_symbol == "X" else "X"
 
 
+class TicTacToeGUI:
+    def __init__(self, root: tk.Tk, bot: ModuleType) -> None:
+        self.root = root
+        self.bot = bot
+        self.board = make_board()
+        self.phase = "start"
+        self.human_color: str | None = None
+        self.current_symbol = "X"
+        self.opening_index = 0
+        self.status = tk.StringVar(value="Izvēlies, kurš veiks Swap2 sākuma gājienu.")
+
+        root.title("Pieci pēc kārtas — spēle pret botu")
+        root.minsize(1000, 700)
+        main = ttk.Frame(root, padding=12)
+        main.pack(fill="both", expand=True)
+
+        self.canvas = tk.Canvas(
+            main,
+            width=BOARD_PIXELS,
+            height=BOARD_PIXELS,
+            background="#e5c27b",
+            highlightthickness=0,
+        )
+        self.canvas.pack(side="left", padx=(0, 18))
+        self.canvas.bind("<Button-1>", self._on_board_click)
+
+        panel = ttk.Frame(main, width=320)
+        panel.pack(side="left", fill="y")
+        panel.pack_propagate(False)
+        ttk.Label(
+            panel,
+            text=f"Pieci pēc kārtas\nPretinieks: {self.bot.BOT_NAME}",
+            font=("Segoe UI", 16, "bold"),
+            justify="left",
+        ).pack(anchor="w", pady=(8, 14))
+        ttk.Label(
+            panel,
+            textvariable=self.status,
+            wraplength=300,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 14))
+
+        self.start_frame = ttk.LabelFrame(panel, text="Jauna spēle", padding=10)
+        self.start_frame.pack(fill="x", pady=(0, 10))
+        ttk.Button(
+            self.start_frame,
+            text="Es veicu sākuma gājienu",
+            command=self.start_human_first,
+        ).pack(fill="x", pady=3)
+        ttk.Button(
+            self.start_frame,
+            text="Bots veic sākuma gājienu",
+            command=self.start_bot_first,
+        ).pack(fill="x", pady=3)
+
+        self.action_frame = ttk.LabelFrame(panel, text="Swap2 izvēle", padding=10)
+        self.action_frame.pack(fill="x", pady=(0, 10))
+        ttk.Button(panel, text="Sākt no jauna", command=self.reset).pack(
+            fill="x", pady=(4, 10)
+        )
+        ttk.Label(
+            panel,
+            text=(
+                "Lai veiktu gājienu, klikšķini uz brīvas rūtiņas. "
+                "Koordinātas uz laukuma sākas ar 0. Uzvar pieci pēc kārtas."
+            ),
+            wraplength=300,
+            justify="left",
+        ).pack(anchor="w")
+        self._render_board()
+
+    def _render_board(self) -> None:
+        self.canvas.delete("all")
+        first = BOARD_MARGIN
+        last = first + CELL_SIZE * (BOARD_SIZE - 1)
+        for index in range(BOARD_SIZE):
+            position = first + index * CELL_SIZE
+            self.canvas.create_line(first, position, last, position, fill="#493b28")
+            self.canvas.create_line(position, first, position, last, fill="#493b28")
+            self.canvas.create_text(
+                position, first - 17, text=str(index), fill="#30291f"
+            )
+            self.canvas.create_text(
+                first - 17, position, text=str(index), fill="#30291f"
+            )
+
+        for row in range(BOARD_SIZE):
+            for col in range(BOARD_SIZE):
+                symbol = self.board[row][col]
+                if symbol == EMPTY:
+                    continue
+                x = first + col * CELL_SIZE
+                y = first + row * CELL_SIZE
+                if symbol == "X":
+                    radius = 12
+                    self.canvas.create_line(
+                        x - radius,
+                        y - radius,
+                        x + radius,
+                        y + radius,
+                        fill="#174f8a",
+                        width=4,
+                    )
+                    self.canvas.create_line(
+                        x - radius,
+                        y + radius,
+                        x + radius,
+                        y - radius,
+                        fill="#174f8a",
+                        width=4,
+                    )
+                else:
+                    radius = 13
+                    self.canvas.create_oval(
+                        x - radius,
+                        y - radius,
+                        x + radius,
+                        y + radius,
+                        outline="#a32d2d",
+                        width=4,
+                    )
+
+    def _show_actions(
+        self, actions: list[tuple[str, Callable[[], None]]]
+    ) -> None:
+        for child in self.action_frame.winfo_children():
+            child.destroy()
+        if not actions:
+            self.action_frame.pack_forget()
+            return
+        self.action_frame.pack(fill="x", pady=(0, 10))
+        for label, callback in actions:
+            ttk.Button(
+                self.action_frame,
+                text=label,
+                command=callback,
+            ).pack(fill="x", pady=3)
+
+    def _clear_actions(self) -> None:
+        self._show_actions([])
+
+    def _put(self, row: int, col: int, symbol: str) -> None:
+        place_stone(self.board, row, col, symbol)
+        self._render_board()
+
+    def _cell_from_click(self, event: tk.Event) -> tuple[int, int] | None:
+        col = round((event.x - BOARD_MARGIN) / CELL_SIZE)
+        row = round((event.y - BOARD_MARGIN) / CELL_SIZE)
+        if not (0 <= row < BOARD_SIZE and 0 <= col < BOARD_SIZE):
+            return None
+        x = BOARD_MARGIN + col * CELL_SIZE
+        y = BOARD_MARGIN + row * CELL_SIZE
+        if abs(event.x - x) > CELL_SIZE // 2 or abs(event.y - y) > CELL_SIZE // 2:
+            return None
+        return row, col
+
+    def _on_board_click(self, event: tk.Event) -> None:
+        cell = self._cell_from_click(event)
+        if cell is None:
+            return
+        row, col = cell
+        if self.board[row][col] != EMPTY:
+            self.status.set("Šī rūtiņa jau ir aizņemta.")
+            return
+
+        if self.phase == "human_propose":
+            symbol = ("X", "X", "O")[self.opening_index]
+            self._put(row, col, symbol)
+            self.opening_index += 1
+            if self.opening_index == 3:
+                self._after_human_proposal()
+            else:
+                next_symbol = ("X", "X", "O")[self.opening_index]
+                self.status.set(f"Novieto nākamo sākuma figūru: {next_symbol}.")
+            return
+
+        if self.phase == "human_place_two":
+            symbol = ("X", "O")[self.opening_index]
+            self._put(row, col, symbol)
+            self.opening_index += 1
+            if self.opening_index == 2:
+                self._after_human_place_two()
+            else:
+                self.status.set("Tagad novieto O.")
+            return
+
+        if self.phase == "play" and self.current_symbol == self.human_color:
+            self._put(row, col, self.current_symbol)
+            self._finish_move(row, col, self.current_symbol)
+
+    def start_human_first(self) -> None:
+        self.reset(keep_start_buttons=False)
+        self.phase = "human_propose"
+        self.status.set("Novieto divus X, pēc tam vienu O, klikšķinot uz laukuma.")
+        self.start_frame.pack_forget()
+
+    def start_bot_first(self) -> None:
+        self.reset(keep_start_buttons=False)
+        opening = self.bot.swap2_propose(self.board)
+        apply_bot_opening(self.board, opening, 3)
+        if sum(symbol == "X" for _, _, symbol in opening) != 2 or sum(
+            symbol == "O" for _, _, symbol in opening
+        ) != 1:
+            raise ValueError("Bot opening must contain two X stones and one O stone")
+        self._render_board()
+        self.phase = "human_take_action"
+        self.status.set("Izvēlies, kuru krāsu ņemt, vai novieto vēl divas figūras.")
+        self.start_frame.pack_forget()
+        self._show_actions(
+            [
+                ("Ņemt X", lambda: self._take_color("X")),
+                ("Ņemt O", lambda: self._take_color("O")),
+                ("Novietot X un O", self._start_human_place_two),
+            ]
+        )
+
+    def _after_human_proposal(self) -> None:
+        response = self.bot.swap2_respond(self.board)
+        action = response.get("action")
+        if action in ("TAKE_X", "TAKE_O"):
+            self._begin_game("O" if action[-1] == "X" else "X", "O")
+            return
+        if action != "PLACE_TWO":
+            raise ValueError(f"Invalid bot Swap2 action: {action!r}")
+
+        moves = response["moves"]
+        if {symbol for _, _, symbol in moves} != {"X", "O"}:
+            raise ValueError("PLACE_TWO must contain one X and one O")
+        apply_bot_opening(self.board, moves, 2)
+        self._render_board()
+        self.phase = "human_choose_color"
+        self.status.set("Izvēlies, ar kuru krāsu turpināsi.")
+        self._show_actions(
+            [
+                ("Turpināt ar X", lambda: self._choose_human_color("X")),
+                ("Turpināt ar O", lambda: self._choose_human_color("O")),
+            ]
+        )
+
+    def _start_human_place_two(self) -> None:
+        self.phase = "human_place_two"
+        self.opening_index = 0
+        self._clear_actions()
+        self.status.set("Novieto vienu X un pēc tam vienu O.")
+
+    def _after_human_place_two(self) -> None:
+        bot_color = self.bot.swap2_final_choice(self.board)
+        if bot_color not in ("X", "O"):
+            raise ValueError(f"Invalid bot color: {bot_color!r}")
+        self._begin_game("O" if bot_color == "X" else "X", "X")
+
+    def _take_color(self, color: str) -> None:
+        self._begin_game(color, "O")
+
+    def _choose_human_color(self, color: str) -> None:
+        self._begin_game(color, "X")
+
+    def _begin_game(self, human_color: str, next_symbol: str) -> None:
+        self.human_color = human_color
+        self.current_symbol = next_symbol
+        self.phase = "play"
+        self._clear_actions()
+        self.status.set(
+            f"Tava krāsa: {human_color}. Nākamais gājiens: {next_symbol}."
+        )
+        self._advance_turn()
+
+    def _advance_turn(self) -> None:
+        if self.phase != "play":
+            return
+        if self.current_symbol == self.human_color:
+            self.status.set(f"Tavs gājiens ({self.current_symbol}). Klikšķini laukumā.")
+        else:
+            self.status.set(f"Bots domā ({self.current_symbol})...")
+            self.root.after(100, self._bot_move)
+
+    def _bot_move(self) -> None:
+        if self.phase != "play" or self.current_symbol == self.human_color:
+            return
+        move = self.bot.get_move(self.board, self.current_symbol)
+        if (
+            not isinstance(move, tuple)
+            or len(move) != 2
+            or not all(isinstance(value, int) for value in move)
+        ):
+            raise ValueError(f"Bot returned an invalid move: {move!r}")
+        row, col = move
+        self._put(row, col, self.current_symbol)
+        self._finish_move(row, col, self.current_symbol)
+
+    def _finish_move(self, row: int, col: int, symbol: str) -> None:
+        if winner_after(self.board, row, col, symbol):
+            self.phase = "game_over"
+            result = "Tu uzvarēji!" if symbol == self.human_color else "Bots uzvarēja."
+            self.status.set(result)
+            messagebox.showinfo("Spēle beigusies", result, parent=self.root)
+            return
+        if all(cell != EMPTY for line in self.board for cell in line):
+            self.phase = "game_over"
+            self.status.set("Neizšķirts.")
+            messagebox.showinfo("Spēle beigusies", "Neizšķirts.", parent=self.root)
+            return
+        self.current_symbol = "O" if symbol == "X" else "X"
+        self._advance_turn()
+
+    def reset(self, keep_start_buttons: bool = True) -> None:
+        self.board = make_board()
+        self.phase = "start"
+        self.human_color = None
+        self.current_symbol = "X"
+        self.opening_index = 0
+        self._clear_actions()
+        if keep_start_buttons:
+            self.start_frame.pack(fill="x", pady=(0, 10))
+        self.status.set("Izvēlies, kurš veiks Swap2 sākuma gājienu.")
+        self._render_board()
+
+
 def main() -> None:
     bot = load_bot()
     if "--test" in sys.argv:
@@ -328,7 +652,12 @@ def main() -> None:
         elapsed = test_time_limit(bot)
         print(f"All checks passed. Move time: {elapsed:.3f}s / 1.000s.")
         return
-    play_game(bot)
+    if "--console" in sys.argv:
+        play_game(bot)
+        return
+    root = tk.Tk()
+    TicTacToeGUI(root, bot)
+    root.mainloop()
 
 
 if __name__ == "__main__":
