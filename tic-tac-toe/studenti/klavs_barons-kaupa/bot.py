@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-BOT_NAME = "Klavs Barons-Kaupa"
+BOT_NAME = "Klāvs v1"
 
 BOARD_SIZE = 15
 EMPTY = "_"
