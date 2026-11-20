@@ -15,7 +15,7 @@ BOARD_SIZE = 15
 EMPTY = "_"
 CELL_SIZE = 40
 BOARD_MARGIN = 32
-BOARD_PIXELS = BOARD_MARGIN * 2 + CELL_SIZE * (BOARD_SIZE - 1)
+BOARD_PIXELS = BOARD_MARGIN * 2 + CELL_SIZE * BOARD_SIZE
 BOT_RELATIVE_PATH = Path(
     "tic-tac-toe",
     "studenti",
@@ -402,7 +402,7 @@ class TicTacToeGUI:
             text=(
                 "Spēle ir 15 x 15 (nevis 3 x 3). Mērķis: salikt 5 vienādus "
                 "simbolus horizontāli, vertikāli vai pa diagonāli.\n\n"
-                "Klikšķini uz brīva līniju krustpunkta. Cipari augšā ir "
+                "Klikšķini uz brīvas rūtiņas. Cipari augšā ir "
                 "kolonnas, kreisajā pusē — rindas (0–14)."
             ),
             wraplength=300,
@@ -414,11 +414,13 @@ class TicTacToeGUI:
     def _render_board(self) -> None:
         self.canvas.delete("all")
         first = BOARD_MARGIN
-        last = first + CELL_SIZE * (BOARD_SIZE - 1)
-        for index in range(BOARD_SIZE):
+        last = first + CELL_SIZE * BOARD_SIZE
+        for index in range(BOARD_SIZE + 1):
             position = first + index * CELL_SIZE
             self.canvas.create_line(first, position, last, position, fill="#493b28")
             self.canvas.create_line(position, first, position, last, fill="#493b28")
+        for index in range(BOARD_SIZE):
+            position = first + (index + 0.5) * CELL_SIZE
             self.canvas.create_text(
                 position, first - 17, text=str(index), fill="#30291f"
             )
@@ -431,8 +433,8 @@ class TicTacToeGUI:
                 symbol = self.board[row][col]
                 if symbol == EMPTY:
                     continue
-                x = first + col * CELL_SIZE
-                y = first + row * CELL_SIZE
+                x = first + (col + 0.5) * CELL_SIZE
+                y = first + (row + 0.5) * CELL_SIZE
                 if symbol == "X":
                     radius = 12
                     self.canvas.create_line(
@@ -486,15 +488,11 @@ class TicTacToeGUI:
         self._render_board()
 
     def _cell_from_click(self, event: tk.Event) -> tuple[int, int] | None:
-        col = round((event.x - BOARD_MARGIN) / CELL_SIZE)
-        row = round((event.y - BOARD_MARGIN) / CELL_SIZE)
+        col = (event.x - BOARD_MARGIN) // CELL_SIZE
+        row = (event.y - BOARD_MARGIN) // CELL_SIZE
         if not (0 <= row < BOARD_SIZE and 0 <= col < BOARD_SIZE):
             return None
-        x = BOARD_MARGIN + col * CELL_SIZE
-        y = BOARD_MARGIN + row * CELL_SIZE
-        if abs(event.x - x) > CELL_SIZE // 2 or abs(event.y - y) > CELL_SIZE // 2:
-            return None
-        return row, col
+        return int(row), int(col)
 
     def _on_board_click(self, event: tk.Event) -> None:
         cell = self._cell_from_click(event)
@@ -616,7 +614,7 @@ class TicTacToeGUI:
         if self.current_symbol == self.human_color:
             self.status.set(
                 f"Tu: {self.human_color}; bots: {self.bot_color}. "
-                f"Tavs {self.current_symbol} gājiens — klikšķini uz brīva krustpunkta."
+                f"Tavs {self.current_symbol} gājiens — klikšķini uz brīvas rūtiņas."
             )
         else:
             self.status.set(
