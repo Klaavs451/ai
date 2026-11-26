@@ -1,5 +1,6 @@
 import unittest
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 from .tournament import (
     BlackjackTournament,
@@ -53,6 +54,21 @@ class PublicAuditTests(unittest.TestCase):
             [bot.name for bot in app._ranked_bots()],
             ["Survivor", "FirstOut"],
         )
+
+    def test_last_standing_option_finishes_when_only_one_bot_survives(self):
+        app = BlackjackTournament.__new__(BlackjackTournament)
+        app.bots = [
+            BotPlayer("LastBot", None, 100),
+            BotPlayer("EliminatedBot", None, 0),
+        ]
+        app.settings = {"rounds": 1000}
+        app.round_number = 20
+        app.last_standing_var = SimpleNamespace(get=lambda: True)
+
+        self.assertTrue(app._tournament_complete())
+
+        app.last_standing_var = SimpleNamespace(get=lambda: False)
+        self.assertFalse(app._tournament_complete())
 
 
 class HandValueTests(unittest.TestCase):
@@ -121,6 +137,7 @@ class RoundTests(unittest.TestCase):
         app.auto_running = False
         app.animation_after_id = None
         app.bot_action_iterator = None
+        app.fast_batch_active = False
         app.auto_dealer_var = self.Variable()
         app.hit_button = self.Button()
         app.stand_button = self.Button()
@@ -159,6 +176,7 @@ class RoundTests(unittest.TestCase):
         app.root = self.Scheduler()
         app.animation_after_id = None
         app.bot_action_iterator = None
+        app.fast_batch_active = False
         app._log = lambda line: None
         app._set_status = lambda text: None
         app._refresh_scoreboard = lambda: None
@@ -173,6 +191,111 @@ class RoundTests(unittest.TestCase):
 
         self.assertEqual(app.phase, "round_done")
         self.assertEqual(app.bots[0].bankroll, 100)
+
+    def test_fast_mode_runs_1000_rounds_without_per_action_ui_refresh(self):
+        app = BlackjackTournament.__new__(BlackjackTournament)
+        bot_module = SimpleNamespace(
+            place_bet=lambda bankroll, history, decks_remaining: 10,
+            decide_action=lambda hand, upcard, history, can_double, can_split: "STAND",
+        )
+        app.bots = [BotPlayer("TestBot", bot_module, 1000000000)]
+        app.round_number = 0
+        app.settings = {
+            "rounds": 1000,
+            "decks": 1,
+            "cut_percent": 75,
+            "step_ms": 150,
+            "batch_size": 1000,
+        }
+        app.shoe = make_shoe(1)
+        app.history = []
+        app.dealer_hand = []
+        app.dealer_hole_hidden = False
+        app.phase = "ready"
+        app.auto_running = True
+        app.after_id = None
+        app.animation_after_id = None
+        app.bot_action_iterator = None
+        app.fast_batch_active = False
+        app.shuffle_count = 0
+        app.early_shuffle_count = 0
+        app.dealer_rule_violations = 0
+        app.fast_mode_var = self.Variable()
+        app.auto_dealer_var = self.Variable()
+        app.auto_button = self.Button()
+        app.hit_button = self.Button()
+        app.stand_button = self.Button()
+        app.root = self.Scheduler()
+        app._log = lambda line: None
+        app._set_status = lambda text: None
+        app._refresh_scoreboard = Mock()
+        app._refresh_audit_status = Mock()
+        app._draw_table = Mock()
+        app._refresh_log = Mock()
+
+        app._run_fast_batch()
+
+        self.assertEqual(app.round_number, 1000)
+        self.assertEqual(app.phase, "finished")
+        self.assertEqual(app._draw_table.call_count, 1)
+        self.assertEqual(app._refresh_scoreboard.call_count, 1)
+        self.assertEqual(len(app.root.callbacks), 0)
+
+    def test_fast_mode_stops_when_one_bot_is_left(self):
+        app = BlackjackTournament.__new__(BlackjackTournament)
+        bot_module = SimpleNamespace(
+            place_bet=lambda bankroll, history, decks_remaining: 10,
+            decide_action=lambda hand, upcard, history, can_double, can_split: "STAND",
+        )
+        app.bots = [
+            BotPlayer("Winner", bot_module, 10),
+            BotPlayer("Eliminated", bot_module, 10),
+        ]
+        app.round_number = 0
+        app.settings = {
+            "rounds": 1000,
+            "decks": 1,
+            "cut_percent": 75,
+            "step_ms": 150,
+            "batch_size": 1000,
+        }
+        draw_order = ["TH", "2H", "6H", "TD", "3H", "TH", "2C"]
+        app.shoe = ["4S", "5S", "7S", "8S", "9S", "JS", "QS", "KS"] + list(
+            reversed(draw_order)
+        )
+        app.history = []
+        app.dealer_hand = []
+        app.dealer_hole_hidden = False
+        app.phase = "ready"
+        app.auto_running = True
+        app.after_id = None
+        app.animation_after_id = None
+        app.bot_action_iterator = None
+        app.fast_batch_active = False
+        app.shuffle_count = 0
+        app.early_shuffle_count = 0
+        app.dealer_rule_violations = 0
+        app.fast_mode_var = self.Variable()
+        app.last_standing_var = self.Variable()
+        app.auto_dealer_var = self.Variable()
+        app.auto_button = self.Button()
+        app.hit_button = self.Button()
+        app.stand_button = self.Button()
+        app.root = self.Scheduler()
+        app._log = lambda line: None
+        app._set_status = lambda text: None
+        app._refresh_scoreboard = Mock()
+        app._refresh_audit_status = Mock()
+        app._draw_table = Mock()
+        app._refresh_log = Mock()
+
+        app._run_fast_batch()
+
+        self.assertEqual(app.round_number, 1)
+        self.assertEqual(app.phase, "finished")
+        self.assertIsNone(app.bots[0].eliminated_at)
+        self.assertEqual(app.bots[1].eliminated_at, 1)
+        self.assertEqual(len(app.root.callbacks), 0)
 
     def test_manual_dealer_stand_below_seventeen_is_audited(self):
         app = BlackjackTournament.__new__(BlackjackTournament)

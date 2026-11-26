@@ -174,6 +174,7 @@ class BlackjackTournament:
         self.after_id = None
         self.animation_after_id = None
         self.bot_action_iterator = None
+        self.fast_batch_active = False
         self.log_lines = []
         self.live_bot_name = None
         self.live_hand_index = 0
@@ -198,15 +199,16 @@ class BlackjackTournament:
         settings.pack(fill="x", padx=10, pady=(10, 5))
 
         self.vars = {
-            "rounds": tk.StringVar(value="100"),
+            "rounds": tk.StringVar(value="1000"),
             "bankroll": tk.StringVar(value="1000"),
             "decks": tk.StringVar(value="4"),
             "cut_percent": tk.StringVar(value="75"),
             "delay_ms": tk.StringVar(value="200"),
             "step_ms": tk.StringVar(value="150"),
+            "batch_size": tk.StringVar(value="1000"),
         }
         fields = (
-            ("Partiju skaits", "rounds", 1, 100000),
+            ("Maks. partiju skaits", "rounds", 1, 1000000),
             ("Sākuma čipi", "bankroll", 10, 100000000),
             ("Kavu skaits", "decks", 1, 16),
             ("Jaukt pie izspēlētiem %", "cut_percent", 50, 95),
@@ -224,6 +226,31 @@ class BlackjackTournament:
                 to=high,
                 width=12,
             ).pack()
+
+        self.fast_mode_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            settings,
+            text="Ātrā simulācija (bez kameru animācijas)",
+            variable=self.fast_mode_var,
+        ).grid(row=1, column=0, columnspan=2, padx=4, sticky="w")
+        batch_frame = ttk.Frame(settings)
+        batch_frame.grid(row=1, column=2, padx=4, sticky="w")
+        ttk.Label(batch_frame, text="Raundi starp ekrāna atjauninājumiem").pack(
+            anchor="w"
+        )
+        ttk.Spinbox(
+            batch_frame,
+            textvariable=self.vars["batch_size"],
+            from_=1,
+            to=100000,
+            width=12,
+        ).pack()
+        self.last_standing_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            settings,
+            text="Turpināt līdz pēdējam botam",
+            variable=self.last_standing_var,
+        ).grid(row=1, column=4, columnspan=2, padx=4, sticky="w")
 
         self.auto_dealer_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
@@ -298,6 +325,8 @@ class BlackjackTournament:
             raise ValueError("Visiem turnīra parametriem jābūt veseliem skaitļiem.") from exc
         if values["rounds"] < 1:
             raise ValueError("Partiju skaitam jābūt vismaz 1.")
+        if values["rounds"] > 1000000:
+            raise ValueError("Partiju skaits nedrīkst pārsniegt 1000000.")
         if values["bankroll"] < 10:
             raise ValueError("Sākuma čipu skaitam jābūt vismaz 10.")
         if values["decks"] < 1:
@@ -308,6 +337,8 @@ class BlackjackTournament:
             raise ValueError("Auto pauze nedrīkst būt negatīva.")
         if values["step_ms"] < 0:
             raise ValueError("Kameras solis nedrīkst būt negatīvs.")
+        if not 1 <= values["batch_size"] <= 100000:
+            raise ValueError("Ātrās simulācijas bloka izmēram jābūt no 1 līdz 100000.")
         return values
 
     def new_tournament(self):
@@ -320,6 +351,7 @@ class BlackjackTournament:
             self.root.after_cancel(self.animation_after_id)
             self.animation_after_id = None
         self.bot_action_iterator = None
+        self.fast_batch_active = False
         self.stop_auto()
         self.round_number = 0
         self.shoe = make_shoe(self.settings["decks"])
@@ -351,7 +383,7 @@ class BlackjackTournament:
         if self.phase not in {"ready", "round_done"}:
             self._set_status("Vispirms pabeidziet pašreizējo partiju.")
             return
-        if self.round_number >= self.settings["rounds"]:
+        if self._tournament_complete():
             self._finish_tournament()
             return
         active = [bot for bot in self.bots if bot.bankroll >= 10]
@@ -415,11 +447,16 @@ class BlackjackTournament:
         self._log(f"Partija {self.round_number}/{self.settings['rounds']} sākusies.")
         self.phase = "players"
         self._render_live_state()
-        if getattr(self, "root", None) is None:
+        if (
+            getattr(self, "root", None) is None
+            or self.fast_batch_active
+            or self._fast_mode_enabled()
+        ):
             self._play_all_bots(active)
             self._begin_dealer_turn()
-            self._refresh_scoreboard()
-            self._draw_table()
+            if not self.fast_batch_active:
+                self._refresh_scoreboard()
+                self._draw_table()
         else:
             self.bot_action_iterator = self._bot_action_steps(active)
             self.animation_after_id = self.root.after(0, self._advance_bot_action)
@@ -569,7 +606,7 @@ class BlackjackTournament:
         total = hand_value(self.dealer_hand)
         self._log(f"Dīleris paņēma kārti; punktu summa: {total}.")
         self._render_live_state()
-        if getattr(self, "root", None) is None:
+        if getattr(self, "root", None) is None or self.fast_batch_active or self._fast_mode_enabled():
             self._dealer_auto_step()
         else:
             self.animation_after_id = self.root.after(
@@ -645,16 +682,17 @@ class BlackjackTournament:
                     f"({self._format_chips(bot.bankroll)} čipi)."
                 )
         self.live_bot_name = None
-        self._refresh_scoreboard()
-        self._draw_table()
-        self._refresh_audit_status()
+        if not self.fast_batch_active:
+            self._refresh_scoreboard()
+            self._draw_table()
+            self._refresh_audit_status()
         self._set_status(
             f"Partija {self.round_number}/{self.settings['rounds']} pabeigta. "
             f"Dīlerim {dealer_total}{' (bust)' if dealer_bust else ''}."
         )
-        if self.auto_running:
+        if self.auto_running and not self.fast_batch_active:
             self._schedule_next_round()
-        elif self.round_number >= self.settings["rounds"]:
+        elif self._tournament_complete():
             self._finish_tournament()
 
     def toggle_auto(self):
@@ -671,6 +709,9 @@ class BlackjackTournament:
         if self.phase == "dealer" and not self.auto_dealer_var.get():
             self._set_status("Vispirms pabeidziet dīlera gājienu.")
             return
+        if self._fast_mode_enabled() and not self.auto_dealer_var.get():
+            self._set_status("Ātrajai simulācijai jābūt ieslēgtam automātiskam dīlerim.")
+            return
         self.auto_running = True
         self.auto_button.configure(text="Apturēt auto")
         if self.phase in {"ready", "round_done"}:
@@ -686,11 +727,63 @@ class BlackjackTournament:
     def _schedule_next_round(self, delay=None):
         if not self.auto_running:
             return
-        if self.round_number >= self.settings["rounds"]:
+        if self._tournament_complete():
             self._finish_tournament()
             return
-        wait = self.settings["delay_ms"] if delay is None else delay
-        self.after_id = self.root.after(wait, self._auto_next_round)
+        if self._fast_mode_enabled():
+            self.after_id = self.root.after(0, self._run_fast_batch)
+        else:
+            wait = self.settings["delay_ms"] if delay is None else delay
+            self.after_id = self.root.after(wait, self._auto_next_round)
+
+    def _run_fast_batch(self):
+        self.after_id = None
+        if not self.auto_running:
+            return
+        if not self.auto_dealer_var.get():
+            self.stop_auto()
+            self._set_status("Ātrajai simulācijai jābūt ieslēgtam automātiskam dīlerim.")
+            return
+
+        self.fast_batch_active = True
+        try:
+            for _ in range(self.settings["batch_size"]):
+                if not self.auto_running or self.phase == "finished":
+                    break
+                if self.phase not in {"ready", "round_done"}:
+                    break
+                self.play_next_round()
+                if self.phase not in {"round_done", "finished"}:
+                    break
+        finally:
+            self.fast_batch_active = False
+
+        self._refresh_scoreboard()
+        self._refresh_audit_status()
+        self._draw_table()
+        self._refresh_log()
+        if self.phase != "finished":
+            self._set_status(
+                f"Ātrā simulācija: {self.round_number}/{self.settings['rounds']} partijas."
+            )
+        self.root.update_idletasks()
+        if self.auto_running:
+            self._schedule_next_round(delay=0)
+
+    def _fast_mode_enabled(self) -> bool:
+        fast_mode = getattr(self, "fast_mode_var", None)
+        return fast_mode is not None and fast_mode.get()
+
+    def _tournament_complete(self) -> bool:
+        if self.round_number >= self.settings["rounds"]:
+            return True
+        if self.round_number and self._last_standing_enabled():
+            return sum(bot.bankroll >= 10 for bot in self.bots) <= 1
+        return False
+
+    def _last_standing_enabled(self) -> bool:
+        last_standing = getattr(self, "last_standing_var", None)
+        return last_standing is not None and last_standing.get()
 
     def _auto_next_round(self):
         self.after_id = None
@@ -714,7 +807,12 @@ class BlackjackTournament:
             f"Uzvarētājs: {outcome} ({self._format_chips(highest)} čipi)."
         )
         self._log(f"Turnīra uzvarētājs: {outcome} ar {self._format_chips(highest)} čipiem.")
-        messagebox.showinfo("Turnīrs pabeigts", self.status_var.get(), parent=self.root)
+        if not self.fast_batch_active:
+            messagebox.showinfo(
+                "Turnīrs pabeigts",
+                self.status_var.get(),
+                parent=self.root,
+            )
 
     def _refresh_scoreboard(self):
         for item in self.score_tree.get_children():
@@ -765,6 +863,8 @@ class BlackjackTournament:
         )
 
     def _render_live_state(self):
+        if self.fast_batch_active:
+            return
         self._refresh_scoreboard()
         self._refresh_audit_status()
         self._draw_table()
@@ -876,7 +976,12 @@ class BlackjackTournament:
     def _log(self, line: str):
         self.log_lines.append(line)
         self.log_lines = self.log_lines[-300:]
+        self._refresh_log()
+
+    def _refresh_log(self):
         if not hasattr(self, "log_text"):
+            return
+        if getattr(self, "fast_batch_active", False):
             return
         self.log_text.configure(state="normal")
         self.log_text.delete("1.0", "end")
