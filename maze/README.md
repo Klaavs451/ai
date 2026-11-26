@@ -109,3 +109,18 @@ zvaigznes.
 ```powershell
 python -m unittest discover -s maze -p "test_*.py" -v
 ```
+
+## JusJaunards labirinta risinātājs
+
+Grafisko BFS/DFS vizualizētāju var palaist no repozitorija saknes:
+
+```powershell
+python maze/JusJaunards_maze.py
+```
+
+Termināļa režīmam izmanto `--cli`; kartes faila nosaukums ir relatīvs `maze`
+mapei:
+
+```powershell
+python maze/JusJaunards_maze.py --cli klavs\maze_Klavs_101x151.txt
+```
