@@ -10,6 +10,12 @@ DEFAULT_SHOE_DECKS = 4
 MAX_SHOE_DECKS = 16
 SHUFFLE_CUT_PERCENT = 75
 _SHOE_DECK_COUNT = DEFAULT_SHOE_DECKS
+MIN_BET = 10
+MAX_BET = 200
+HOUSE_EDGE_ESTIMATE = 0.005
+EDGE_PER_TRUE_COUNT = 0.005
+HAND_RETURN_VARIANCE = 1.3
+KELLY_FRACTION = 0.25
 
 _SUITS = frozenset({"H", "D", "C", "S"})
 _RANK_VALUES = {
@@ -213,7 +219,15 @@ def analyze_bet(
         _SHOE_DECK_COUNT = inferred_decks
     running = running_count(history)
     true = estimate_true_count(history, decks_remaining)
-    bankroll_limit = max(10, min(200, (bankroll // 100) * 10))
+    estimated_edge = max(
+        0.0,
+        EDGE_PER_TRUE_COUNT * true - HOUSE_EDGE_ESTIMATE,
+    )
+    kelly_fraction = KELLY_FRACTION * estimated_edge / HAND_RETURN_VARIANCE
+    bankroll_limit = max(
+        MIN_BET,
+        min(MAX_BET, int(bankroll * kelly_fraction)),
+    )
     if true < 0.5:
         units = 1
     elif true < 1.0:
@@ -233,11 +247,12 @@ def analyze_bet(
     shoe_audit = audit_public_shoe(history, _SHOE_DECK_COUNT)
     if shoe_audit.startswith(("CHECK:", "ALERT:")):
         units = 1
-    amount = min(bankroll_limit, units * 10)
+    amount = min(bankroll_limit, units * MIN_BET)
     reason = (
         f"Hi-Lo running count {running:+d}, true count {true:+.1f}; "
-        f"betting {amount} chips ({amount // 10} units, "
-        f"bankroll cap {bankroll_limit})."
+        f"estimated edge {estimated_edge * 100:.2f}%; betting {amount} chips "
+        f"({amount // MIN_BET} units, quarter-Kelly bankroll cap "
+        f"{bankroll_limit})."
     )
     if shoe_audit.startswith(("CHECK:", "ALERT:")):
         reason += f" Public shoe audit: {shoe_audit} Bet reduced to minimum."

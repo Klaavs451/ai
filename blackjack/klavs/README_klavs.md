@@ -36,11 +36,15 @@ double darbības. `place_bet` saņem atlikušās kavas, tāpēc bots nosaka arī
 turnīra konfigurēto kavu skaitu; lēmuma laikā aprēķins ierēķina vienu slēpto
 dīlera kārti kā nezināmu, nevis redzamu. Pie aptuveni 75% izspēlēto kāršu
 turnīrs pats pārjauc kavu un atiestata vēsturi, tāpēc atiestatās arī skaits.
-Bots izmanto agresīvu likmju izkliedi: no 10 līdz 200 žetoniem atkarībā no
-true count. Pie negatīva vai zema skaita tas paliek pie minimuma; likmi
-nepalielina tikai tāpēc, ka zaudēja.
-Likme ir ierobežota līdz 10% no pašreizējā bankroll (noapaļota uz leju līdz 10
-žetoniem, bet ne zemāk par minimālo likmi), tāpēc tā sarūk līdz ar bankroll.
+Likme pieaug tikai tad, ja true count norāda uz pozitīvu sagaidāmo priekšrocību
+un pašreizējais bankroll atbalsta lielāku summu. Likmes griestus nosaka
+ceturtdaļas Kelly aprēķins ar aptuvenu 0.5% priekšrocības izmaiņu uz true-count
+punktu un 1.3 vienību rokas iznākuma dispersiju; skala tiek aprauta pie 200
+žetoniem. Tas ir konservatīvāk par fiksētu bankroll slieksni un automātiski
+samazina risku pēc zaudējumiem. Pie negatīva vai zema skaita bots paliek pie
+minimālajiem 10 žetoniem un likmi nepalielina tikai tāpēc, ka zaudēja. Tā kā
+minimālā likme ir 10, pie bankroll zem 10 spēlētājs tiek izslēgts, bet pie
+maza bankroll minimālā likme joprojām var būt liela daļa no atlikuma.
 Neparastas publisko kāršu proporcijas vai neiespējamas kārtis liek botam
 samazināt likmi līdz minimumam un izlaist skaita novirzes, dubultošanu un dalīšanu.
 Šāds statistikas brīdinājums nav pierādījums manipulācijai vai dīlera rīcībai.

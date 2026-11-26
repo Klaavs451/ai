@@ -78,25 +78,33 @@ class BlackjackBotTests(unittest.TestCase):
 
     def test_bet_spread_increases_when_count_is_favorable(self) -> None:
         low_cards = [f"{rank}{suit}" for rank in "23456" for suit in "HDCS"]
-        neutral_bet = place_bet(1000, [], 4.0)
-        favorable_bet = place_bet(1000, low_cards, 3.6)
+        neutral_bet = place_bet(10000, [], 4.0)
+        favorable_bet = place_bet(10000, low_cards, 3.6)
         self.assertEqual(neutral_bet, 10)
-        self.assertEqual(favorable_bet, 100)
+        self.assertEqual(favorable_bet, 43)
         self.assertLessEqual(place_bet(35, low_cards, 3.6), 35)
 
-    def test_aggressive_bet_spread_uses_true_count_thresholds(self) -> None:
+    def test_bets_without_estimated_edge_stay_at_minimum(self) -> None:
         self.assertEqual(place_bet(1000, ["TH", "AS"], 4.0), 10)
-        self.assertEqual(place_bet(1000, ["2H", "3H"], 4.0), 20)
-        self.assertEqual(place_bet(1000, ["2H", "3H", "4H", "5H"], 4.0), 30)
+        self.assertEqual(place_bet(1000, ["2H", "3H"], 4.0), 10)
+        self.assertEqual(place_bet(1000, ["2H", "3H", "4H", "5H"], 4.0), 10)
 
     def test_bankroll_drawdown_reduces_aggressive_bet_limit(self) -> None:
         low_cards = [f"{rank}{suit}" for rank in "23456" for suit in "HDCS"]
-        for bankroll, expected_bet in ((1000, 100), (800, 80), (500, 50), (49, 10)):
+        for bankroll, expected_bet in (
+            (10000, 43),
+            (8000, 35),
+            (5000, 21),
+            (1000, 10),
+            (49, 10),
+        ):
             with self.subTest(bankroll=bankroll):
                 self.assertEqual(
                     place_bet(bankroll, low_cards, 3.6),
                     expected_bet,
                 )
+        self.assertIn("estimated edge", analyze_bet(1000, low_cards, 3.6).reason)
+        self.assertIn("quarter-Kelly", analyze_bet(1000, low_cards, 3.6).reason)
 
     def test_public_shoe_audit_flags_extreme_or_impossible_data(self) -> None:
         normal_sample = [
