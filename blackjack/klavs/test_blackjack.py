@@ -4,6 +4,7 @@ import random
 import unittest
 from unittest.mock import Mock
 
+import bot as bot_module
 from app import BlackjackApp
 from bot import (
     BOT_NAME,
@@ -47,6 +48,34 @@ class BlackjackBotTests(unittest.TestCase):
         self.assertEqual(running_count(low_cards), 20)
         self.assertGreater(estimate_true_count(low_cards), 5.0)
 
+    def test_action_count_uses_inferred_decks_and_hidden_dealer_card(self) -> None:
+        initial_deck_count = bot_module._SHOE_DECK_COUNT
+        history_before_deal = [
+            f"{rank}{suit}"
+            for rank in "23456"
+            for suit in "HDCS"
+        ] + ["7H", "8H", "9H", "TH", "JH", "QH"]
+
+        try:
+            analyze_bet(1000, history_before_deal, 1.5)
+            self.assertEqual(bot_module._SHOE_DECK_COUNT, 2)
+
+            visible_history = history_before_deal + ["AS", "7D", "6C"]
+            expected_decks_remaining = 2 - (len(visible_history) + 1) / 52
+            expected_true_count = (
+                running_count(visible_history) / expected_decks_remaining
+            )
+            insight = analyze_decision(
+                ["AS", "7D"],
+                "6C",
+                visible_history,
+                can_double=False,
+                can_split=False,
+            )
+            self.assertAlmostEqual(insight.true_count, expected_true_count)
+        finally:
+            bot_module._SHOE_DECK_COUNT = initial_deck_count
+
     def test_bet_spread_increases_when_count_is_favorable(self) -> None:
         low_cards = [f"{rank}{suit}" for rank in "23456" for suit in "HDCS"]
         neutral_bet = place_bet(1000, [], 4.0)
@@ -89,8 +118,11 @@ class BlackjackBotTests(unittest.TestCase):
         self.assertTrue(audit_public_shoe(normal_sample).startswith("OK:"))
         self.assertTrue(audit_public_shoe(biased_sample).startswith("CHECK:"))
         self.assertTrue(audit_public_shoe(["2H"] * 5).startswith("ALERT:"))
+        self.assertTrue(audit_public_shoe(["2H"] * 3, 2).startswith("ALERT:"))
         self.assertTrue(is_early_shuffle(53))
         self.assertFalse(is_early_shuffle(52))
+        self.assertTrue(is_early_shuffle(27, deck_count=2))
+        self.assertFalse(is_early_shuffle(26, deck_count=2))
 
     def test_suspicious_shoe_uses_minimum_bet_and_conservative_actions(self) -> None:
         biased_sample = [
@@ -122,6 +154,11 @@ class BlackjackBotTests(unittest.TestCase):
         self.assertEqual(decide_action(["8S", "8D"], "6C", [], False, True), "SPLIT")
         self.assertEqual(decide_action(["5S", "5D"], "6C", [], True, True), "DOUBLE")
         self.assertEqual(decide_action(["5S", "6D"], "9C", [], True, False), "DOUBLE")
+
+    def test_soft_eighteen_does_not_double_against_dealer_two(self) -> None:
+        self.assertEqual(decide_action(["AS", "7D"], "2C", [], True, False), "STAND")
+        self.assertEqual(decide_action(["AS", "7D"], "3C", [], True, False), "DOUBLE")
+        self.assertEqual(decide_action(["AS", "7D"], "9C", [], True, False), "HIT")
 
     def test_hi_lo_deviation_is_explained(self) -> None:
         low_cards = [f"{rank}{suit}" for rank in "23456" for suit in "HDCS"]

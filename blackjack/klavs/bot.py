@@ -6,6 +6,10 @@ from math import sqrt
 from typing import NamedTuple
 
 BOT_NAME = "klavs_bot"
+DEFAULT_SHOE_DECKS = 4
+MAX_SHOE_DECKS = 16
+SHUFFLE_CUT_PERCENT = 75
+_SHOE_DECK_COUNT = DEFAULT_SHOE_DECKS
 
 _SUITS = frozenset({"H", "D", "C", "S"})
 _RANK_VALUES = {
@@ -79,8 +83,13 @@ def running_count(history: Iterable[str]) -> int:
     return sum(_hi_lo_value(card) for card in history)
 
 
-def audit_public_shoe(history: list[str]) -> str:
+def audit_public_shoe(
+    history: list[str],
+    deck_count: int = DEFAULT_SHOE_DECKS,
+) -> str:
     """Flag impossible cards or extreme rank-frequency deviations in a shoe."""
+    if not 1 <= deck_count <= MAX_SHOE_DECKS:
+        raise ValueError("deck_count must be between 1 and 16.")
     for card in history:
         if (
             not isinstance(card, str)
@@ -90,24 +99,32 @@ def audit_public_shoe(history: list[str]) -> str:
         ):
             return f"ALERT: invalid card in public history: {card!r}."
 
-    if len(history) > 208:
-        return "ALERT: public history exceeds one four-deck shoe."
+    shoe_size = deck_count * 52
+    if len(history) > shoe_size:
+        return "ALERT: public history exceeds the configured shoe size."
 
     card_counts = Counter(history)
     repeated_card = next(
-        ((card, count) for card, count in card_counts.items() if count > 4),
+        (
+            (card, count)
+            for card, count in card_counts.items()
+            if count > deck_count
+        ),
         None,
     )
     if repeated_card:
         card, count = repeated_card
-        return f"ALERT: {card} appeared {count} times; a four-deck shoe has 4."
+        return (
+            f"ALERT: {card} appeared {count} times; "
+            f"a {deck_count}-deck shoe has {deck_count}."
+        )
 
     seen = len(history)
     if seen < 52:
         return f"COLLECTING: {seen}/52 public cards seen."
 
-    if seen == 208:
-        return "OK: complete four-deck shoe composition."
+    if seen == shoe_size:
+        return f"OK: complete {deck_count}-deck shoe composition."
 
     probability = 1 / 13
     expected = seen * probability
@@ -115,8 +132,8 @@ def audit_public_shoe(history: list[str]) -> str:
         seen
         * probability
         * (1 - probability)
-        * (208 - seen)
-        / 207
+        * (shoe_size - seen)
+        / (shoe_size - 1)
     )
     standard_deviation = sqrt(variance)
     rank_counts = Counter(card[:-1] for card in history)
@@ -136,21 +153,49 @@ def audit_public_shoe(history: list[str]) -> str:
     return f"OK: {seen} public cards; no extreme rank imbalance."
 
 
-def is_early_shuffle(cards_remaining: int) -> bool:
-    """Return whether a four-deck shoe was shuffled before 75% was dealt."""
-    if not 0 <= cards_remaining <= 208:
+def is_early_shuffle(
+    cards_remaining: int,
+    deck_count: int = DEFAULT_SHOE_DECKS,
+    cut_percent: int = SHUFFLE_CUT_PERCENT,
+) -> bool:
+    """Return whether the shoe was shuffled before its configured cut point."""
+    if not 1 <= deck_count <= MAX_SHOE_DECKS:
+        raise ValueError("deck_count must be between 1 and 16.")
+    if not 0 <= cut_percent <= 100:
+        raise ValueError("cut_percent must be between 0 and 100.")
+    shoe_size = deck_count * 52
+    if not 0 <= cards_remaining <= shoe_size:
         return True
-    return 208 - cards_remaining < 156
+    cards_dealt = shoe_size - cards_remaining
+    return cards_dealt < int(shoe_size * cut_percent / 100)
+
+
+def _infer_shoe_deck_count(
+    history: list[str],
+    decks_remaining: float,
+) -> int | None:
+    estimate = len(history) / 52.0 + decks_remaining
+    nearest = int(estimate + 0.5)
+    if 1 <= nearest <= MAX_SHOE_DECKS:
+        return nearest
+    return None
 
 
 def estimate_true_count(
     history: Iterable[str],
     decks_remaining: float | None = None,
+    *,
+    hidden_cards: int = 0,
 ) -> float:
-    """Estimate Hi-Lo true count; action callbacks do not supply deck count."""
+    """Estimate Hi-Lo count, including hidden cards in the shoe-depth estimate."""
     seen_cards = list(history)
     if decks_remaining is None:
-        decks_remaining = max(0.25, 4.0 - len(seen_cards) / 52.0)
+        if hidden_cards < 0:
+            raise ValueError("hidden_cards cannot be negative.")
+        decks_remaining = max(
+            0.25,
+            _SHOE_DECK_COUNT - (len(seen_cards) + hidden_cards) / 52.0,
+        )
     else:
         decks_remaining = max(0.25, decks_remaining)
     return running_count(seen_cards) / decks_remaining
@@ -161,6 +206,11 @@ def analyze_bet(
     history: list[str],
     decks_remaining: float,
 ) -> BetInsight:
+    global _SHOE_DECK_COUNT
+
+    inferred_decks = _infer_shoe_deck_count(history, decks_remaining)
+    if inferred_decks is not None:
+        _SHOE_DECK_COUNT = inferred_decks
     running = running_count(history)
     true = estimate_true_count(history, decks_remaining)
     bankroll_limit = max(10, min(200, (bankroll // 100) * 10))
@@ -180,7 +230,7 @@ def analyze_bet(
         units = 15
     else:
         units = 20
-    shoe_audit = audit_public_shoe(history)
+    shoe_audit = audit_public_shoe(history, _SHOE_DECK_COUNT)
     if shoe_audit.startswith(("CHECK:", "ALERT:")):
         units = 1
     amount = min(bankroll_limit, units * 10)
@@ -241,11 +291,11 @@ def analyze_decision(
         raise ValueError("The hand must contain at least one card.")
 
     running = running_count(history)
-    true = estimate_true_count(history)
+    true = estimate_true_count(history, hidden_cards=1)
     dealer_value = card_value(dealer_upcard)
     total, soft = _hand_score(hand)
     count_note = f"Hi-Lo count {running:+d} / true {true:+.1f}."
-    shoe_audit = audit_public_shoe(history)
+    shoe_audit = audit_public_shoe(history, _SHOE_DECK_COUNT)
     suspicious_shoe = shoe_audit.startswith(("CHECK:", "ALERT:"))
 
     if total >= 21:
@@ -284,7 +334,7 @@ def analyze_decision(
             (total in (13, 14) and dealer_value in (5, 6))
             or (total in (15, 16) and 4 <= dealer_value <= 6)
             or (total == 17 and 3 <= dealer_value <= 6)
-            or (total == 18 and 2 <= dealer_value <= 6)
+            or (total == 18 and 3 <= dealer_value <= 6)
         ):
             return DecisionInsight(
                 "DOUBLE",
