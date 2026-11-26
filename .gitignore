@@ -1,3 +1,5 @@
+__pycache__/
+*.py[cod]
 game-of-life/zane/__pycache__/multiplayer_game.cpython-314.pyc
 tic-tac-toe/Test2/__pycache__/bot.cpython-38.pyc
 tic-tac-toe/kristers_kalnins/__pycache__/bot.cpython-313.pyc

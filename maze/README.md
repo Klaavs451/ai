@@ -32,6 +32,23 @@ Programma automātiski pārbauda šīs mapes `.txt` failus pēc satura, nevis fa
 
 # Labirintu risinātājs
 
+## Klāva labirinta risinātājs
+
+Klāva risinātājs un viņa lielā karte atrodas mapē `maze/klavs/`.
+No repozitorija saknes palaid grafisko versiju:
+
+```powershell
+python maze\klavs\Klavs_maze.py
+```
+
+Komandrindas versijai:
+
+```powershell
+python maze\klavs\Klavs_maze.py --cli
+```
+
+Programma automātiski ielādē šajā pašā mapē esošo karti.
+
 ## Palaišana
 
 No projekta mapes uzinstalē `pygame-ce` un palaid programmu:

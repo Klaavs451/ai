@@ -5,6 +5,7 @@
 1. [Labirinti](#labirinti)
 2. [Tic-Tac-Toe ar Swap2](#tic-tac-toe-ar-swap2)
 3. [Game of Life un Pocket Party](#game-of-life-un-pocket-party)
+4. [Blackjack](#blackjack)
 
 ## Labirinti
 
@@ -21,8 +22,8 @@ grafisko interfeisu, vairāku līmeņu spēli un LAN režīmu.
   izvēlni, animētu ceļu, mazām kartēm, testiem un palaišanas failu.
 - **Valters** — izstrādāja [`Valters_maze.py`](maze/Valters_maze.py), kurā ir vairāki ceļa
   meklēšanas algoritmi un rediģējams/neatkarīgs labirinta skatītājs.
-- **Klāvs Barons-Kaupa** — izveidoja [`Klavs_maze.py`](maze/Klavs_maze.py) ar labirintu
-  risinātāja dashboardu, alternatīviem risinājumiem un smagu testkartīti.
+- **Klāvs** — izveidoja [`maze/klavs/`](maze/klavs/)
+  ar labirintu risinātāja dashboardu, alternatīviem risinājumiem un smagu testkartīti.
 - **Karlis (GitHub `Shamejs`)** — pievienoja [`Karlis_maze.py`](maze/Karlis_maze.py) ar
   karšu nolasīšanu, BFS un otras risināšanas metodes, CLI un grafisko interfeisu.
 - **Undine Stafecka** — izveidoja pilnvērtīgu labirintu spēli [`Undine_maze.py`](game-of-life/Undine/Undine_maze.py),
@@ -56,6 +57,8 @@ izpilda aizsargātus gājienus ar taimautu, pārbauda valdības likumus un nosl�
   ar laika ierobežotu meklēšanu un [`kristers_kalnins/gui.py`](tic-tac-toe/kristers_kalnins/gui.py).
 - **Pēteris Pūniņš** — izveidoja [`peteris_punins/bot.py`](tic-tac-toe/peteris_punins/bot.py)
   ar spēles stāvokļa meklēšanu un atsevišķu [`peteris_punins/gui.py`](tic-tac-toe/peteris_punins/gui.py).
+- **Klāvs** — izveidoja savu botu un versiju arhīvu mapē
+  [`studenti/klavs/`](tic-tac-toe/studenti/klavs/).
 - **Testa varianti** — [`Test1/`](tic-tac-toe/Test1/), [`Test2/`](tic-tac-toe/Test2/) un
   [`Test4/`](tic-tac-toe/Test4/) satur alternatīvas bota politikas turnīra salīdzināšanai.
 
@@ -86,6 +89,7 @@ implementācijas, kā arī lokālu 3D ballīšu galda spēli.
   versiju, dzēšanu ar atslēgu, serveri/klientu un palaišanas failus.
 - **Undine Stafecka** — izveidoja [`Undine/Life.py`](game-of-life/Undine/Life.py),
   paplašināmu vizuāli bagātu simuliāciju ar tēmu, animāciju un importēšanu.
+- **Klāvs** — personīgā darba mape ir [`klavs/`](game-of-life/klavs/).
 - **GitHub `exploit123321`** — izveidoja [`Pocket Party`](game-of-life/pocket-party/)
   3D pass-and-play ballīšu spēli ar Python noteikumiem, Three.js skatu, saglabāšanu,
   mini-spēlēm un testiem.
@@ -103,3 +107,9 @@ python server.py --open
 
 Uz Windows var izmantot [`Play Game.bat`](game-of-life/pocket-party/Play%20Game.bat).
 Detalizētas Pocket Party instrukcijas atrodas [`game-of-life/pocket-party/README.md`](game-of-life/pocket-party/README.md).
+
+## Blackjack
+
+[`blackjack/`](blackjack/) satur Blackjack AI turnīra specifikāciju un dalībnieku botus.
+Klāva darba mape ir [`blackjack/klavs/`](blackjack/klavs/).
+Bota API un spēles specifikācija atrodas [`RULES.md`](blackjack/RULES.md).

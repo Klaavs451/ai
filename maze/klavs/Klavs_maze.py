@@ -1,6 +1,6 @@
 """Uzdevums:
 Izveidot programmu, kas atrisina labirintu
-Programmu nosaukt Klavs_maze.py, un saglabāt šajā mapē
+Programmu nosaukt Klavs_maze.py un saglabāt mapē maze/klavs/
 Parādīt atrisinājumu vizuāli, piemēram, bet ne obligāti, kā PacMan
 Salīdzināt soļu laikus
 Programma var analizēt dažādas kartes. Izveidojam arī paši savu karti,
