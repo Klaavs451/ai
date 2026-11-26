@@ -32,7 +32,10 @@ COLORS = {
     "panel_light": "#192722",
     "felt": "#0B5A43",
     "felt_dark": "#084634",
+    "wood": "#57351F",
+    "wood_light": "#9B6938",
     "gold": "#D9B66F",
+    "navy": "#163C58",
     "text": "#F4F1E8",
     "muted": "#A8B7AE",
     "red": "#C84B50",
@@ -48,7 +51,7 @@ SUIT_SYMBOLS = {"H": "♥", "D": "♦", "C": "♣", "S": "♠"}
 class BlackjackApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("Klavs Blackjack | Card Counting Lab")
+        self.root.title("Blackjack | klavs_bot")
         self.root.geometry("1180x850")
         self.root.minsize(940, 720)
         self.root.configure(bg=COLORS["background"])
@@ -70,7 +73,7 @@ class BlackjackApp:
         self.current_bet = 0
         self.last_action = "READY"
         self.last_reason = "The running count starts at zero for a fresh four-deck shoe."
-        self.status = "Deal a hand to watch the bot read the table."
+        self.status = "Choose DEAL NEXT HAND or AUTO 10 HANDS to start watching."
         self.log_entries: list[str] = []
 
         self._configure_styles()
@@ -128,43 +131,56 @@ class BlackjackApp:
         )
         style.configure(
             "Primary.TButton",
-            background=COLORS["gold"],
-            foreground="#1A211D",
+            background=COLORS["green"],
+            foreground="#0C2118",
             font=("Segoe UI", 10, "bold"),
-            padding=(18, 11),
+            padding=(12, 8),
             borderwidth=0,
         )
         style.map(
             "Primary.TButton",
-            background=[("active", "#E6C985"), ("disabled", "#7C765F")],
+            background=[("active", "#78E0AD"), ("disabled", "#53665C")],
             foreground=[("disabled", "#D7D1C0")],
         )
         style.configure(
             "Secondary.TButton",
-            background=COLORS["panel_light"],
+            background=COLORS["navy"],
             foreground=COLORS["text"],
             font=("Segoe UI", 9, "bold"),
-            padding=(14, 10),
+            padding=(10, 8),
             borderwidth=0,
         )
         style.map(
             "Secondary.TButton",
-            background=[("active", "#263A31"), ("disabled", "#202923")],
+            background=[("active", "#285E7E"), ("disabled", "#26333A")],
+            foreground=[("disabled", COLORS["muted"])],
+        )
+        style.configure(
+            "Danger.TButton",
+            background=COLORS["red"],
+            foreground=COLORS["text"],
+            font=("Segoe UI", 9, "bold"),
+            padding=(10, 8),
+            borderwidth=0,
+        )
+        style.map(
+            "Danger.TButton",
+            background=[("active", "#E06A6E"), ("disabled", "#6A4849")],
             foreground=[("disabled", COLORS["muted"])],
         )
         style.configure(
             "Status.TLabel",
-            background=COLORS["background"],
+            background=COLORS["panel"],
             foreground=COLORS["muted"],
             font=("Segoe UI", 9),
         )
 
     def _build_layout(self) -> None:
-        outer = ttk.Frame(self.root, style="Table.TFrame", padding=(24, 18, 24, 16))
+        outer = ttk.Frame(self.root, style="Table.TFrame", padding=(20, 12, 20, 10))
         outer.pack(fill="both", expand=True)
 
         header = ttk.Frame(outer, style="Table.TFrame")
-        header.pack(fill="x", pady=(0, 14))
+        header.pack(fill="x", pady=(0, 8))
         title_block = ttk.Frame(header, style="Table.TFrame")
         title_block.pack(side="left", fill="x", expand=True)
         ttk.Label(title_block, text="BLACKJACK", style="Title.TLabel").pack(anchor="w")
@@ -176,8 +192,8 @@ class BlackjackApp:
         self.shoe_label = ttk.Label(header, text="", style="Subtitle.TLabel")
         self.shoe_label.pack(side="right", anchor="e", padx=(12, 0))
 
-        stats = ttk.Frame(outer, style="Panel.TFrame", padding=(16, 10))
-        stats.pack(fill="x", pady=(0, 12))
+        stats = ttk.Frame(outer, style="Panel.TFrame", padding=(14, 7))
+        stats.pack(fill="x", pady=(0, 8))
         self.stat_labels: dict[str, ttk.Label] = {}
         stat_items = (
             ("bankroll", "BANKROLL"),
@@ -198,13 +214,13 @@ class BlackjackApp:
             outer,
             background=COLORS["background"],
             highlightthickness=0,
-            height=440,
+            height=340,
         )
         self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<Configure>", lambda _event: self._render_table())
 
-        analysis = ttk.Frame(outer, style="Panel.TFrame", padding=(14, 9))
-        analysis.pack(fill="x", pady=(8, 0))
+        analysis = ttk.Frame(outer, style="Panel.TFrame", padding=(12, 6))
+        analysis.pack(side="bottom", fill="x", pady=(6, 0))
         self.metric_labels: dict[str, ttk.Label] = {}
         metric_items = (
             ("running", "RUNNING COUNT"),
@@ -228,16 +244,16 @@ class BlackjackApp:
             justify="left",
         )
         self.reason_label.grid(
-            row=1, column=0, columnspan=4, sticky="w", pady=(8, 0)
+            row=1, column=0, columnspan=4, sticky="w", pady=(5, 0)
         )
         ttk.Label(
             analysis,
             text="LIVE PLAY LOG",
             style="MetricTitle.TLabel",
-        ).grid(row=2, column=0, columnspan=4, sticky="w", pady=(10, 4))
+        ).grid(row=2, column=0, columnspan=4, sticky="w", pady=(7, 3))
         self.log_text = tk.Text(
             analysis,
-            height=4,
+            height=3,
             wrap="word",
             state="disabled",
             background=COLORS["panel_light"],
@@ -246,7 +262,7 @@ class BlackjackApp:
             relief="flat",
             font=("Segoe UI", 8),
             padx=8,
-            pady=6,
+            pady=4,
         )
         self.log_text.grid(row=3, column=0, columnspan=3, sticky="nsew")
         log_scrollbar = ttk.Scrollbar(
@@ -258,47 +274,47 @@ class BlackjackApp:
         self.log_text.configure(yscrollcommand=log_scrollbar.set)
         analysis.rowconfigure(3, weight=1)
 
-        footer = ttk.Frame(outer, style="Table.TFrame")
-        footer.pack(fill="x", pady=(12, 0))
+        footer = ttk.Frame(outer, style="Panel.TFrame", padding=(12, 7))
+        footer.pack(side="bottom", fill="x", pady=(8, 0))
         self.status_label = ttk.Label(
             footer,
             text=self.status,
             style="Status.TLabel",
-            wraplength=360,
+            wraplength=1100,
         )
-        self.status_label.pack(side="left", fill="x", expand=True, padx=(0, 12))
+        self.status_label.pack(fill="x", pady=(0, 6))
 
-        buttons = ttk.Frame(footer, style="Table.TFrame")
-        buttons.pack(side="right")
+        buttons = ttk.Frame(footer, style="Panel.TFrame")
+        buttons.pack(fill="x")
         self.deal_button = ttk.Button(
             buttons,
             text="DEAL NEXT HAND",
             style="Primary.TButton",
             command=self._start_round,
         )
-        self.deal_button.pack(side="left", padx=(0, 7))
+        self.deal_button.pack(side="left", expand=True, fill="x", padx=(0, 8))
         self.auto_button = ttk.Button(
             buttons,
             text="AUTO 10 HANDS",
             style="Secondary.TButton",
             command=self._start_auto,
         )
-        self.auto_button.pack(side="left", padx=(0, 7))
+        self.auto_button.pack(side="left", expand=True, fill="x", padx=(0, 8))
         self.stop_button = ttk.Button(
             buttons,
             text="STOP AUTO",
-            style="Secondary.TButton",
+            style="Danger.TButton",
             command=self._stop_auto,
             state="disabled",
         )
-        self.stop_button.pack(side="left", padx=(0, 7))
+        self.stop_button.pack(side="left", expand=True, fill="x", padx=(0, 8))
         self.reset_button = ttk.Button(
             buttons,
             text="RESET TABLE",
             style="Secondary.TButton",
             command=self._reset_table,
         )
-        self.reset_button.pack(side="left")
+        self.reset_button.pack(side="left", expand=True, fill="x")
 
     def _decks_remaining(self) -> float:
         hidden_cards = 1 if self.round_active and not self.dealer_hole_revealed else 0
@@ -693,22 +709,31 @@ class BlackjackApp:
         canvas = self.canvas
         canvas.delete("all")
         width = max(canvas.winfo_width(), 760)
-        height = max(canvas.winfo_height(), 400)
+        height = max(canvas.winfo_height(), 300)
         canvas.create_oval(
-            25,
+            15,
             8,
-            width - 25,
+            width - 15,
             height - 8,
-            fill=COLORS["felt"],
+            fill=COLORS["wood"],
             outline=COLORS["gold"],
-            width=2,
+            width=4,
         )
         canvas.create_oval(
-            40,
-            23,
-            width - 40,
-            height - 23,
-            outline=COLORS["felt_dark"],
+            28,
+            19,
+            width - 28,
+            height - 19,
+            fill=COLORS["felt"],
+            outline=COLORS["wood_light"],
+            width=3,
+        )
+        canvas.create_oval(
+            41,
+            31,
+            width - 41,
+            height - 31,
+            outline="#177458",
             width=1,
         )
         canvas.create_text(
@@ -736,30 +761,32 @@ class BlackjackApp:
         )
         self._draw_cards(
             self.dealer_hand,
-            y=62,
+            y=58,
             hide_second=bool(self.dealer_hand) and not self.dealer_hole_revealed,
             area_width=width - 150,
-            card_height=86,
+            card_height=78,
         )
+        self._draw_chip_stack(76, height * 0.30)
+        self._draw_chip_stack(width - 110, height * 0.30)
 
         canvas.create_line(
             width * 0.28,
-            height * 0.43,
+            height * 0.45,
             width * 0.72,
-            height * 0.43,
-            fill="#36765D",
+            height * 0.45,
+            fill="#8C7147",
             width=1,
         )
         canvas.create_text(
             width // 2,
-            height * 0.40,
+            height * 0.41,
             text=f"HI-LO COUNT  {running_count(self.history):+d}",
             fill=COLORS["gold"],
             font=("Segoe UI", 9, "bold"),
         )
         canvas.create_text(
             width // 2,
-            height * 0.47,
+            height * 0.50,
             text=self.status,
             fill=COLORS["text"],
             font=("Segoe UI", 9),
@@ -769,17 +796,39 @@ class BlackjackApp:
         if not self.player_hands:
             canvas.create_text(
                 width // 2,
-                height * 0.74,
-                text="THE BOT WILL BET, COUNT AND PLAY THIS SHOE",
+                height * 0.68,
+                text="DEAL NEXT HAND TO WATCH ONE ROUND",
                 fill="#C5D8CD",
                 font=("Segoe UI", 10, "bold"),
             )
+            canvas.create_text(
+                width // 2,
+                height * 0.73,
+                text="OR START AUTO 10 HANDS",
+                fill="#C5D8CD",
+                font=("Segoe UI", 8, "bold"),
+            )
+            canvas.create_oval(
+                width // 2 - 62,
+                height * 0.79,
+                width // 2 + 62,
+                height * 0.79 + 30,
+                outline=COLORS["gold"],
+                width=2,
+            )
+            canvas.create_text(
+                width // 2,
+                height * 0.79 + 15,
+                text="BOT BET",
+                fill=COLORS["gold"],
+                font=("Segoe UI", 8, "bold"),
+            )
         else:
-            available_height = max(92, int(height * 0.43))
+            available_height = max(92, int(height * 0.40))
             row_height = max(47, available_height // len(self.player_hands))
-            card_height = min(82, max(42, row_height - 22))
+            card_height = min(72, max(42, row_height - 18))
             for index, hand in enumerate(self.player_hands):
-                y = int(height * 0.53) + index * row_height
+                y = int(height * 0.57) + index * row_height
                 active = self.round_active and index == self.active_hand_index
                 title_color = COLORS["gold"] if active else "#C5D8CD"
                 hand_total = hand_value(hand.cards)
@@ -798,6 +847,30 @@ class BlackjackApp:
                     area_width=width - 230,
                     card_height=card_height,
                     center_x=(width + 105) / 2,
+                )
+
+        canvas.create_text(
+            width // 2,
+            height - 35,
+            text="BLACKJACK PAYS 3:2     •     DEALER STANDS ON SOFT 17",
+            fill="#E5D2A2",
+            font=("Segoe UI", 8, "bold"),
+        )
+
+    def _draw_chip_stack(self, x: float, y: float) -> None:
+        chip_colors = ("#F2EBDD", "#C84B50", "#244F78")
+        for stack, color in enumerate(chip_colors):
+            left = x + stack * 12
+            for level in range(3):
+                top = y - level * 5
+                self.canvas.create_oval(
+                    left,
+                    top,
+                    left + 28,
+                    top + 12,
+                    fill=color,
+                    outline="#E5C982",
+                    width=1,
                 )
 
     def _draw_cards(
