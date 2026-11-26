@@ -1,6 +1,8 @@
 """Klavs's Blackjack bot and card-counting strategy."""
 
+from collections import Counter
 from collections.abc import Iterable
+from math import sqrt
 from typing import NamedTuple
 
 BOT_NAME = "klavs_bot"
@@ -77,6 +79,70 @@ def running_count(history: Iterable[str]) -> int:
     return sum(_hi_lo_value(card) for card in history)
 
 
+def audit_public_shoe(history: list[str]) -> str:
+    """Flag impossible cards or extreme rank-frequency deviations in a shoe."""
+    for card in history:
+        if (
+            not isinstance(card, str)
+            or len(card) not in (2, 3)
+            or card[:-1] not in _RANK_VALUES
+            or card[-1] not in _SUITS
+        ):
+            return f"ALERT: invalid card in public history: {card!r}."
+
+    if len(history) > 208:
+        return "ALERT: public history exceeds one four-deck shoe."
+
+    card_counts = Counter(history)
+    repeated_card = next(
+        ((card, count) for card, count in card_counts.items() if count > 4),
+        None,
+    )
+    if repeated_card:
+        card, count = repeated_card
+        return f"ALERT: {card} appeared {count} times; a four-deck shoe has 4."
+
+    seen = len(history)
+    if seen < 52:
+        return f"COLLECTING: {seen}/52 public cards seen."
+
+    if seen == 208:
+        return "OK: complete four-deck shoe composition."
+
+    probability = 1 / 13
+    expected = seen * probability
+    variance = (
+        seen
+        * probability
+        * (1 - probability)
+        * (208 - seen)
+        / 207
+    )
+    standard_deviation = sqrt(variance)
+    rank_counts = Counter(card[:-1] for card in history)
+    rank, z_score = max(
+        (
+            (rank, abs(rank_counts[rank] - expected) / standard_deviation)
+            for rank in _RANK_VALUES
+        ),
+        key=lambda item: item[1],
+    )
+    if z_score >= 4.0:
+        return (
+            f"CHECK: {rank} frequency is unusual "
+            f"({rank_counts[rank]} vs {expected:.1f} expected, "
+            f"{z_score:.1f}σ); this is not proof of manipulation."
+        )
+    return f"OK: {seen} public cards; no extreme rank imbalance."
+
+
+def is_early_shuffle(cards_remaining: int) -> bool:
+    """Return whether a four-deck shoe was shuffled before 75% was dealt."""
+    if not 0 <= cards_remaining <= 208:
+        return True
+    return 208 - cards_remaining < 156
+
+
 def estimate_true_count(
     history: Iterable[str],
     decks_remaining: float | None = None,
@@ -97,27 +163,34 @@ def analyze_bet(
 ) -> BetInsight:
     running = running_count(history)
     true = estimate_true_count(history, decks_remaining)
-    bankroll_limit = max(10, min(200, (bankroll // 50) * 10))
+    bankroll_limit = max(10, min(200, (bankroll // 100) * 10))
     if true < 0.5:
         units = 1
     elif true < 1.0:
-        units = 3
+        units = 2
     elif true < 1.5:
-        units = 5
+        units = 3
     elif true < 2.0:
-        units = 8
+        units = 5
     elif true < 2.5:
-        units = 12
+        units = 7
     elif true < 3.0:
-        units = 16
+        units = 10
+    elif true < 4.0:
+        units = 15
     else:
         units = 20
+    shoe_audit = audit_public_shoe(history)
+    if shoe_audit.startswith(("CHECK:", "ALERT:")):
+        units = 1
     amount = min(bankroll_limit, units * 10)
     reason = (
         f"Hi-Lo running count {running:+d}, true count {true:+.1f}; "
         f"betting {amount} chips ({amount // 10} units, "
         f"bankroll cap {bankroll_limit})."
     )
+    if shoe_audit.startswith(("CHECK:", "ALERT:")):
+        reason += f" Public shoe audit: {shoe_audit} Bet reduced to minimum."
     return BetInsight(amount, running, true, reason)
 
 
@@ -172,11 +245,18 @@ def analyze_decision(
     dealer_value = card_value(dealer_upcard)
     total, soft = _hand_score(hand)
     count_note = f"Hi-Lo count {running:+d} / true {true:+.1f}."
+    shoe_audit = audit_public_shoe(history)
+    suspicious_shoe = shoe_audit.startswith(("CHECK:", "ALERT:"))
 
     if total >= 21:
         return DecisionInsight("STAND", running, true, f"Total is {total}. {count_note}")
 
-    if can_split and len(hand) == 2 and card_value(hand[0]) == card_value(hand[1]):
+    if (
+        not suspicious_shoe
+        and can_split
+        and len(hand) == 2
+        and card_value(hand[0]) == card_value(hand[1])
+    ):
         split_action = _pair_action(card_value(hand[0]), dealer_value)
         if split_action == "SPLIT":
             return DecisionInsight(
@@ -187,7 +267,7 @@ def analyze_decision(
                 f"{count_note}",
             )
 
-    if can_double:
+    if can_double and not suspicious_shoe:
         if not soft and (
             (total == 9 and 3 <= dealer_value <= 6)
             or (total == 10 and 2 <= dealer_value <= 9)
@@ -215,22 +295,22 @@ def analyze_decision(
             )
 
     if not soft:
-        if total == 16 and dealer_value == 10 and true >= 0:
+        if not suspicious_shoe and total == 16 and dealer_value == 10 and true >= 0:
             return DecisionInsight(
                 "STAND", running, true,
                 f"Hi-Lo deviation: stand on hard 16 vs T at true count {true:+.1f}.",
             )
-        if total == 15 and dealer_value == 10 and true >= 4:
+        if not suspicious_shoe and total == 15 and dealer_value == 10 and true >= 4:
             return DecisionInsight(
                 "STAND", running, true,
                 f"Hi-Lo deviation: stand on hard 15 vs T at true count {true:+.1f}.",
             )
-        if total == 12 and dealer_value == 3 and true >= 2:
+        if not suspicious_shoe and total == 12 and dealer_value == 3 and true >= 2:
             return DecisionInsight(
                 "STAND", running, true,
                 f"Hi-Lo deviation: stand on hard 12 vs 3 at true count {true:+.1f}.",
             )
-        if total == 12 and dealer_value == 2 and true >= 3:
+        if not suspicious_shoe and total == 12 and dealer_value == 2 and true >= 3:
             return DecisionInsight(
                 "STAND", running, true,
                 f"Hi-Lo deviation: stand on hard 12 vs 2 at true count {true:+.1f}.",
@@ -255,6 +335,8 @@ def analyze_decision(
         f"{hand_type} {total} vs dealer {dealer_value}: basic strategy says "
         f"{action.lower()}. {count_note}"
     )
+    if suspicious_shoe:
+        reason += f" Public shoe audit: {shoe_audit} Using conservative action."
     return DecisionInsight(action, running, true, reason)
 
 

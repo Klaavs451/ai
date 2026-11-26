@@ -9,10 +9,12 @@ from bot import (
     BOT_NAME,
     analyze_bet,
     analyze_decision,
+    audit_public_shoe,
     card_value,
     decide_action,
     estimate_true_count,
     hand_value,
+    is_early_shuffle,
     place_bet,
     running_count,
 )
@@ -50,23 +52,71 @@ class BlackjackBotTests(unittest.TestCase):
         neutral_bet = place_bet(1000, [], 4.0)
         favorable_bet = place_bet(1000, low_cards, 3.6)
         self.assertEqual(neutral_bet, 10)
-        self.assertGreater(favorable_bet, neutral_bet)
-        self.assertLessEqual(favorable_bet, 200)
+        self.assertEqual(favorable_bet, 100)
         self.assertLessEqual(place_bet(35, low_cards, 3.6), 35)
 
     def test_aggressive_bet_spread_uses_true_count_thresholds(self) -> None:
         self.assertEqual(place_bet(1000, ["TH", "AS"], 4.0), 10)
-        self.assertEqual(place_bet(1000, ["2H", "3H"], 4.0), 30)
-        self.assertEqual(place_bet(1000, ["2H", "3H", "4H", "5H"], 4.0), 50)
+        self.assertEqual(place_bet(1000, ["2H", "3H"], 4.0), 20)
+        self.assertEqual(place_bet(1000, ["2H", "3H", "4H", "5H"], 4.0), 30)
 
     def test_bankroll_drawdown_reduces_aggressive_bet_limit(self) -> None:
         low_cards = [f"{rank}{suit}" for rank in "23456" for suit in "HDCS"]
-        for bankroll, expected_bet in ((1000, 200), (800, 160), (500, 100), (49, 10)):
+        for bankroll, expected_bet in ((1000, 100), (800, 80), (500, 50), (49, 10)):
             with self.subTest(bankroll=bankroll):
                 self.assertEqual(
                     place_bet(bankroll, low_cards, 3.6),
                     expected_bet,
                 )
+
+    def test_public_shoe_audit_flags_extreme_or_impossible_data(self) -> None:
+        normal_sample = [
+            f"{rank}{suit}"
+            for rank in "23456789TJQKA"
+            for suit in "HDCS"
+        ]
+        biased_sample = [
+            f"2{suit}"
+            for _ in range(4)
+            for suit in "HDCS"
+        ] + [
+            f"{rank}{suit}"
+            for rank in "3456789TJQKA"
+            for suit in "HDC"
+        ]
+
+        self.assertTrue(audit_public_shoe([]).startswith("COLLECTING:"))
+        self.assertTrue(audit_public_shoe(normal_sample).startswith("OK:"))
+        self.assertTrue(audit_public_shoe(biased_sample).startswith("CHECK:"))
+        self.assertTrue(audit_public_shoe(["2H"] * 5).startswith("ALERT:"))
+        self.assertTrue(is_early_shuffle(53))
+        self.assertFalse(is_early_shuffle(52))
+
+    def test_suspicious_shoe_uses_minimum_bet_and_conservative_actions(self) -> None:
+        biased_sample = [
+            f"2{suit}"
+            for _ in range(4)
+            for suit in "HDCS"
+        ] + [
+            f"{rank}{suit}"
+            for rank in "3456789TJQKA"
+            for suit in "HDC"
+        ]
+
+        self.assertEqual(place_bet(1000, biased_sample, 3.0), 10)
+        insight = analyze_decision(
+            ["TS", "6D"],
+            "TH",
+            biased_sample,
+            can_double=True,
+            can_split=False,
+        )
+        self.assertEqual(insight.action, "HIT")
+        self.assertIn("conservative action", insight.reason)
+        self.assertEqual(
+            decide_action(["TS", "6D"], "6C", biased_sample, False, False),
+            "STAND",
+        )
 
     def test_pair_splitting_and_double_decisions(self) -> None:
         self.assertEqual(decide_action(["8S", "8D"], "6C", [], False, True), "SPLIT")

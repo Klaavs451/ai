@@ -1,7 +1,58 @@
 import unittest
 from types import SimpleNamespace
 
-from .tournament import BotPlayer, hand_value, is_natural, make_shoe
+from .tournament import (
+    BlackjackTournament,
+    BotPlayer,
+    audit_public_history,
+    hand_value,
+    is_natural,
+    make_shoe,
+)
+
+
+class PublicAuditTests(unittest.TestCase):
+    def test_public_history_audit_checks_validity_and_rank_balance(self):
+        complete_shoe = [
+            f"{rank}{suit}"
+            for _ in range(4)
+            for suit in "HDCS"
+            for rank in "23456789TJQKA"
+        ]
+        biased_sample = [
+            f"2{suit}"
+            for _ in range(4)
+            for suit in "HDCS"
+        ] + [
+            f"{rank}{suit}"
+            for rank in "3456789TJQKA"
+            for suit in "HDC"
+        ]
+
+        self.assertTrue(
+            audit_public_history(complete_shoe, 4).startswith("OK:")
+        )
+        self.assertTrue(
+            audit_public_history(biased_sample, 4).startswith("CHECK:")
+        )
+        self.assertTrue(
+            audit_public_history(["2H"] * 5, 4).startswith("ALERT:")
+        )
+        with self.assertRaises(ValueError):
+            audit_public_history([], 0)
+
+    def test_leaderboard_uses_survival_to_break_chip_ties(self):
+        app = BlackjackTournament.__new__(BlackjackTournament)
+        first_out = BotPlayer("FirstOut", None, 100)
+        survivor = BotPlayer("Survivor", None, 100)
+        first_out.eliminated_at = 3
+        app.bots = [first_out, survivor]
+        app.round_number = 6
+
+        self.assertEqual(
+            [bot.name for bot in app._ranked_bots()],
+            ["Survivor", "FirstOut"],
+        )
 
 
 class HandValueTests(unittest.TestCase):
@@ -34,6 +85,17 @@ class RoundTests(unittest.TestCase):
         def get(self):
             return True
 
+    class Scheduler:
+        def __init__(self):
+            self.callbacks = []
+
+        def after(self, _delay, callback):
+            self.callbacks.append(callback)
+            return str(len(self.callbacks))
+
+        def update_idletasks(self):
+            pass
+
     def run_round(self, draw_order, decide_action, place_bet=None, bankroll=100):
         from .tournament import BlackjackTournament
 
@@ -48,6 +110,7 @@ class RoundTests(unittest.TestCase):
             "rounds": 2,
             "decks": 1,
             "cut_percent": 75,
+            "step_ms": 0,
         }
         filler = ["2S", "3S", "4S", "5S", "7S", "9S", "JS", "QS"]
         app.shoe = filler + list(reversed(draw_order))
@@ -56,6 +119,8 @@ class RoundTests(unittest.TestCase):
         app.dealer_hole_hidden = False
         app.phase = "ready"
         app.auto_running = False
+        app.animation_after_id = None
+        app.bot_action_iterator = None
         app.auto_dealer_var = self.Variable()
         app.hit_button = self.Button()
         app.stand_button = self.Button()
@@ -65,6 +130,64 @@ class RoundTests(unittest.TestCase):
         app._draw_table = lambda: None
         app.play_next_round()
         return app.bots[0], app
+
+    def test_gui_round_advances_bot_and_dealer_actions_as_scheduled_steps(self):
+        app = BlackjackTournament.__new__(BlackjackTournament)
+        bot_module = SimpleNamespace(
+            place_bet=lambda bankroll, history, decks_remaining: 10,
+            decide_action=lambda hand, upcard, history, can_double, can_split: "STAND",
+        )
+        app.bots = [BotPlayer("TestBot", bot_module, 100)]
+        app.round_number = 0
+        app.settings = {
+            "rounds": 2,
+            "decks": 1,
+            "cut_percent": 75,
+            "step_ms": 0,
+        }
+        app.shoe = ["2S", "3S", "4S", "5S", "7S", "9S", "JS", "QS"] + list(
+            reversed(["TH", "6H", "8D", "TD", "2C"])
+        )
+        app.history = []
+        app.dealer_hand = []
+        app.dealer_hole_hidden = False
+        app.phase = "ready"
+        app.auto_running = False
+        app.auto_dealer_var = self.Variable()
+        app.hit_button = self.Button()
+        app.stand_button = self.Button()
+        app.root = self.Scheduler()
+        app.animation_after_id = None
+        app.bot_action_iterator = None
+        app._log = lambda line: None
+        app._set_status = lambda text: None
+        app._refresh_scoreboard = lambda: None
+        app._draw_table = lambda: None
+
+        app.play_next_round()
+
+        self.assertEqual(app.phase, "players")
+        self.assertEqual(len(app.root.callbacks), 1)
+        while app.root.callbacks:
+            app.root.callbacks.pop(0)()
+
+        self.assertEqual(app.phase, "round_done")
+        self.assertEqual(app.bots[0].bankroll, 100)
+
+    def test_manual_dealer_stand_below_seventeen_is_audited(self):
+        app = BlackjackTournament.__new__(BlackjackTournament)
+        app.phase = "dealer"
+        app.dealer_hand = ["6H", "TD"]
+        app.dealer_rule_violations = 0
+        app._log = lambda line: None
+        app._refresh_audit_status = lambda: None
+        settled = []
+        app._settle_round = lambda: settled.append(True)
+
+        app.dealer_stand()
+
+        self.assertEqual(app.dealer_rule_violations, 1)
+        self.assertEqual(settled, [True])
 
     def test_push_returns_the_original_bet(self):
         bot, app = self.run_round(

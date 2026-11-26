@@ -9,10 +9,12 @@ from bot import (
     BOT_NAME,
     analyze_bet,
     analyze_decision,
+    audit_public_shoe,
     card_value,
     decide_action,
     estimate_true_count,
     hand_value,
+    is_early_shuffle,
     place_bet,
     running_count,
 )
@@ -70,6 +72,8 @@ class BlackjackApp:
         self.wins = 0
         self.losses = 0
         self.pushes = 0
+        self.shuffle_count = 0
+        self.early_shuffle_count = 0
         self.active_hand_index = 0
         self.current_bet = 0
         self.last_action = "READY"
@@ -247,11 +251,21 @@ class BlackjackApp:
         self.reason_label.grid(
             row=1, column=0, columnspan=4, sticky="w", pady=(5, 0)
         )
+        self.audit_label = ttk.Label(
+            analysis,
+            text="",
+            style="Reason.TLabel",
+            wraplength=950,
+            justify="left",
+        )
+        self.audit_label.grid(
+            row=2, column=0, columnspan=4, sticky="w", pady=(4, 0)
+        )
         ttk.Label(
             analysis,
             text="LIVE PLAY LOG",
             style="MetricTitle.TLabel",
-        ).grid(row=2, column=0, columnspan=4, sticky="w", pady=(7, 3))
+        ).grid(row=3, column=0, columnspan=4, sticky="w", pady=(7, 3))
         self.log_text = tk.Text(
             analysis,
             height=3,
@@ -265,15 +279,15 @@ class BlackjackApp:
             padx=8,
             pady=4,
         )
-        self.log_text.grid(row=3, column=0, columnspan=3, sticky="nsew")
+        self.log_text.grid(row=4, column=0, columnspan=3, sticky="nsew")
         log_scrollbar = ttk.Scrollbar(
             analysis,
             orient="vertical",
             command=self.log_text.yview,
         )
-        log_scrollbar.grid(row=3, column=3, sticky="ns")
+        log_scrollbar.grid(row=4, column=3, sticky="ns")
         self.log_text.configure(yscrollcommand=log_scrollbar.set)
-        analysis.rowconfigure(3, weight=1)
+        analysis.rowconfigure(4, weight=1)
 
         footer = ttk.Frame(outer, style="Panel.TFrame", padding=(12, 7))
         footer.pack(side="bottom", fill="x", pady=(8, 0))
@@ -337,12 +351,21 @@ class BlackjackApp:
             self.metric_labels["bet"].configure(text=f"{bet_insight.amount} chips")
         self.metric_labels["decision"].configure(text=self.last_action)
         self.reason_label.configure(text=self.last_reason)
+        self.audit_label.configure(text=self._shoe_audit_text())
         self.stat_labels["bankroll"].configure(text=f"{self.bankroll} chips")
         self.stat_labels["wins"].configure(text=str(self.wins))
         self.stat_labels["losses"].configure(text=str(self.losses))
         self.stat_labels["pushes"].configure(text=str(self.pushes))
         self.shoe_label.configure(
             text=f"4-DECK SHOE  {len(self.shoe)} / 208   •   HAND {self.round_number}"
+        )
+
+    def _shoe_audit_text(self) -> str:
+        audit = audit_public_shoe(self.history)
+        return (
+            f"PUBLIC SHOE AUDIT: {audit}  |  Shuffles: {self.shuffle_count} "
+            f"(before 75% dealt: {self.early_shuffle_count}). "
+            "This checks visible cards only and does not prove manipulation."
         )
 
     def _set_status(self, message: str) -> None:
@@ -396,10 +419,19 @@ class BlackjackApp:
             return
 
         if len(self.shoe) <= RESHUFFLE_AT:
+            cards_dealt = 208 - len(self.shoe)
+            shuffled_early = is_early_shuffle(len(self.shoe))
+            self.shuffle_count += 1
+            if shuffled_early:
+                self.early_shuffle_count += 1
             self.shoe = create_shoe()
             self.history.clear()
             self.last_reason = "Shoe reshuffled: the Hi-Lo running count resets to zero."
-            self._record_event("Shoe reshuffled. Running count reset to +0.")
+            self._record_event(
+                f"Shoe reshuffled after {cards_dealt}/208 cards were dealt"
+                f"{' (before the 75% threshold)' if shuffled_early else ''}. "
+                "Running count reset to +0."
+            )
 
         bet_insight = analyze_bet(
             self.bankroll,
@@ -689,6 +721,7 @@ class BlackjackApp:
         self.round_number = 0
         self.bankroll = 1000
         self.wins = self.losses = self.pushes = 0
+        self.shuffle_count = self.early_shuffle_count = 0
         self.auto_remaining = 0
         self.last_action = "READY"
         self.last_reason = "Fresh shoe: running count reset to zero."

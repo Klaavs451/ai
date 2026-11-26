@@ -7,7 +7,9 @@ import random
 import sys
 import time
 import tkinter as tk
+from collections import Counter
 from dataclasses import dataclass, field
+from math import sqrt
 from pathlib import Path
 from tkinter import messagebox, ttk
 
@@ -49,6 +51,70 @@ def make_shoe(deck_count: int) -> list[str]:
     return shoe
 
 
+def audit_public_history(history: list[str], deck_count: int) -> str:
+    """Check only the visible cards; statistical deviations are not proof of cheating."""
+    if deck_count < 1:
+        raise ValueError("deck_count must be at least one.")
+    for card in history:
+        if (
+            not isinstance(card, str)
+            or len(card) != 2
+            or card[0] not in RANKS
+            or card[1] not in SUITS
+        ):
+            return f"ALERT: nederīga publiska kārts {card!r}."
+
+    shoe_size = deck_count * 52
+    if len(history) > shoe_size:
+        return "ALERT: publisko kāršu ir vairāk nekā kurpē."
+
+    repeated_card = next(
+        (
+            (card, count)
+            for card, count in Counter(history).items()
+            if count > deck_count
+        ),
+        None,
+    )
+    if repeated_card:
+        card, count = repeated_card
+        return f"ALERT: {card} redzēta {count} reizes; kurpē ir {deck_count} kopijas."
+
+    seen = len(history)
+    if seen < 52:
+        return f"COLLECTING: redzētas {seen}/52 publiskās kārtis."
+    if seen == shoe_size:
+        return f"OK: pārbaudītas visas {shoe_size} kurpes kārtis."
+
+    probability = 1 / 13
+    expected = seen * probability
+    variance = (
+        seen
+        * probability
+        * (1 - probability)
+        * (shoe_size - seen)
+        / (shoe_size - 1)
+    )
+    rank_counts = Counter(card[0] for card in history)
+    rank, z_score = max(
+        (
+            (
+                rank,
+                abs(rank_counts[rank] - expected) / sqrt(variance),
+            )
+            for rank in RANKS
+        ),
+        key=lambda item: item[1],
+    )
+    if z_score >= 4:
+        return (
+            f"CHECK: {rank} biežums ir neparasts "
+            f"({rank_counts[rank]} pret {expected:.1f} sagaidītām); "
+            "tas nav manipulācijas pierādījums."
+        )
+    return f"OK: {seen} publiskajām kārtīm nav izteiktas rangu novirzes."
+
+
 @dataclass
 class BotPlayer:
     name: str
@@ -56,6 +122,8 @@ class BotPlayer:
     bankroll: float
     hands: list[dict] = field(default_factory=list)
     bet: int = 0
+    eliminated_at: int | None = None
+    last_action: str = "READY"
 
 
 def load_bots() -> tuple[list[BotPlayer], list[str]]:
@@ -104,11 +172,19 @@ class BlackjackTournament:
         self.phase = "ready"
         self.auto_running = False
         self.after_id = None
+        self.animation_after_id = None
+        self.bot_action_iterator = None
         self.log_lines = []
+        self.live_bot_name = None
+        self.live_hand_index = 0
+        self.shuffle_count = 0
+        self.early_shuffle_count = 0
+        self.dealer_rule_violations = 0
 
         self._build_ui()
         self._refresh_scoreboard()
         self._draw_table()
+        self._refresh_audit_status()
         if load_errors:
             self._log("Botu ielādes kļūdas:")
             for error in load_errors:
@@ -127,6 +203,7 @@ class BlackjackTournament:
             "decks": tk.StringVar(value="4"),
             "cut_percent": tk.StringVar(value="75"),
             "delay_ms": tk.StringVar(value="200"),
+            "step_ms": tk.StringVar(value="150"),
         }
         fields = (
             ("Partiju skaits", "rounds", 1, 100000),
@@ -134,6 +211,7 @@ class BlackjackTournament:
             ("Kavu skaits", "decks", 1, 16),
             ("Jaukt pie izspēlētiem %", "cut_percent", 50, 95),
             ("Auto pauze (ms)", "delay_ms", 0, 10000),
+            ("Kameras solis (ms)", "step_ms", 0, 2000),
         )
         for column, (label, key, low, high) in enumerate(fields):
             frame = ttk.Frame(settings)
@@ -167,6 +245,13 @@ class BlackjackTournament:
 
         self.status_var = tk.StringVar()
         ttk.Label(self.root, textvariable=self.status_var, padding=(12, 4)).pack(fill="x")
+        self.audit_var = tk.StringVar()
+        ttk.Label(
+            self.root,
+            textvariable=self.audit_var,
+            padding=(12, 2),
+            wraplength=1200,
+        ).pack(fill="x")
 
         table_frame = ttk.Frame(self.root)
         table_frame.pack(fill="both", expand=True, padx=10, pady=5)
@@ -183,13 +268,22 @@ class BlackjackTournament:
         lower.pack(fill="both", expand=True, padx=10, pady=(4, 10))
         scores = ttk.LabelFrame(lower, text="Čipu tabula", padding=5)
         lower.add(scores, weight=3)
-        self.score_tree = ttk.Treeview(scores, columns=("name", "chips", "status"), show="headings", height=8)
+        self.score_tree = ttk.Treeview(
+            scores,
+            columns=("rank", "name", "chips", "survived", "status"),
+            show="headings",
+            height=8,
+        )
+        self.score_tree.heading("rank", text="#")
         self.score_tree.heading("name", text="Bots")
         self.score_tree.heading("chips", text="Čipi")
+        self.score_tree.heading("survived", text="Izdzīvoja")
         self.score_tree.heading("status", text="Stāvoklis")
+        self.score_tree.column("rank", width=40, anchor="center")
         self.score_tree.column("name", width=220)
         self.score_tree.column("chips", width=100, anchor="e")
-        self.score_tree.column("status", width=120)
+        self.score_tree.column("survived", width=90, anchor="center")
+        self.score_tree.column("status", width=150)
         self.score_tree.pack(fill="both", expand=True)
 
         log_frame = ttk.LabelFrame(lower, text="Turnīra notikumi", padding=5)
@@ -212,6 +306,8 @@ class BlackjackTournament:
             raise ValueError("Jaukšanas slieksnim jābūt no 50% līdz 95%.")
         if values["delay_ms"] < 0:
             raise ValueError("Auto pauze nedrīkst būt negatīva.")
+        if values["step_ms"] < 0:
+            raise ValueError("Kameras solis nedrīkst būt negatīvs.")
         return values
 
     def new_tournament(self):
@@ -220,6 +316,10 @@ class BlackjackTournament:
         except ValueError as exc:
             messagebox.showerror("Nederīgi parametri", str(exc), parent=self.root)
             return
+        if self.animation_after_id is not None:
+            self.root.after_cancel(self.animation_after_id)
+            self.animation_after_id = None
+        self.bot_action_iterator = None
         self.stop_auto()
         self.round_number = 0
         self.shoe = make_shoe(self.settings["decks"])
@@ -227,13 +327,20 @@ class BlackjackTournament:
         self.dealer_hand = []
         self.phase = "ready"
         self.log_lines.clear()
+        self.live_bot_name = None
+        self.shuffle_count = 0
+        self.early_shuffle_count = 0
+        self.dealer_rule_violations = 0
         for bot in self.bots:
             bot.bankroll = self.settings["bankroll"]
             bot.hands.clear()
             bot.bet = 0
+            bot.eliminated_at = None
+            bot.last_action = "READY"
         self._log(f"Jauns turnīrs: {len(self.bots)} boti, {self.settings['rounds']} partijas.")
         self._refresh_scoreboard()
         self._draw_table()
+        self._refresh_audit_status()
         self._set_status("Turnīrs sagatavots. Sāciet nākamo partiju vai auto režīmu.")
 
     def play_next_round(self):
@@ -254,7 +361,23 @@ class BlackjackTournament:
 
         shoe_size = self.settings["decks"] * 52
         cut_size = int(shoe_size * (1 - self.settings["cut_percent"] / 100))
-        if len(self.shoe) < max(2 * len(active) + 2, cut_size):
+        minimum_round_cards = 2 * len(active) + 2
+        if len(self.shoe) < max(minimum_round_cards, cut_size):
+            dealt = shoe_size - len(self.shoe)
+            early_shuffle = len(self.shoe) > cut_size
+            self.shuffle_count += 1
+            if early_shuffle:
+                self.early_shuffle_count += 1
+                self._log(
+                    "Agrāka jaukšana pirms iestatītā sliekšņa: "
+                    f"vajag vismaz {minimum_round_cards} kārtis nākamajai partijai, "
+                    f"kurpē palikušas {len(self.shoe)}."
+                )
+            else:
+                self._log(
+                    f"Sasniegts jaukšanas slieksnis pēc {dealt}/{shoe_size} "
+                    "izdalītām kārtīm."
+                )
             self.shoe = make_shoe(self.settings["decks"])
             self.history = []
             self._log("Kava samaisīta; redzēto kāršu vēsture atiestatīta.")
@@ -262,11 +385,13 @@ class BlackjackTournament:
         self.round_number += 1
         self.dealer_hand = []
         self.dealer_hole_hidden = True
+        self.live_bot_name = None
         for bot in self.bots:
             bot.hands = []
             bot.bet = 0
             if bot not in active:
                 continue
+            bot.last_action = "BET"
             max_allowed = min(200, int(bot.bankroll))
             try:
                 started = time.monotonic()
@@ -289,11 +414,15 @@ class BlackjackTournament:
 
         self._log(f"Partija {self.round_number}/{self.settings['rounds']} sākusies.")
         self.phase = "players"
-        self._play_all_bots(active)
-        if self.phase == "players":
+        self._render_live_state()
+        if getattr(self, "root", None) is None:
+            self._play_all_bots(active)
             self._begin_dealer_turn()
-        self._refresh_scoreboard()
-        self._draw_table()
+            self._refresh_scoreboard()
+            self._draw_table()
+        else:
+            self.bot_action_iterator = self._bot_action_steps(active)
+            self.animation_after_id = self.root.after(0, self._advance_bot_action)
 
     @staticmethod
     def _new_hand(bet: int, was_split: bool = False) -> dict:
@@ -315,12 +444,21 @@ class BlackjackTournament:
             )
 
     def _play_all_bots(self, active: list[BotPlayer]):
+        for _ in self._bot_action_steps(active):
+            pass
+
+    def _bot_action_steps(self, active: list[BotPlayer]):
         for bot in active:
+            self.live_bot_name = bot.name
             hand_index = 0
             while hand_index < len(bot.hands):
+                self.live_hand_index = hand_index
                 hand = bot.hands[hand_index]
                 if is_natural(hand["cards"]):
                     hand["done"] = True
+                    bot.last_action = "BLACKJACK"
+                    self._render_live_state()
+                    yield
                     hand_index += 1
                     continue
                 actions = 0
@@ -329,6 +467,8 @@ class BlackjackTournament:
                     if actions > 40:
                         self._log(f"{bot.name}: pārāk daudz gājienu; roka apturēta.")
                         hand["done"] = True
+                        self._render_live_state()
+                        yield
                         break
                     can_double = len(hand["cards"]) == 2 and bot.bankroll >= hand["bet"]
                     pair = (
@@ -356,6 +496,7 @@ class BlackjackTournament:
                         self._log(f"{bot.name}: decide_action kļūda ({exc}); roka apstādināta.")
                         action = "STAND"
 
+                    bot.last_action = action
                     if action == "HIT":
                         hand["cards"].append(self._draw_card(visible=True))
                         if hand_value(hand["cards"]) >= 21:
@@ -380,9 +521,12 @@ class BlackjackTournament:
                             second_hand["done"] = True
                     else:
                         hand["done"] = True
+                    self._render_live_state()
+                    yield
                 if hand_value(hand["cards"]) > 21:
                     self._log(f"{bot.name}: bust ({hand_value(hand['cards'])}).")
                 hand_index += 1
+        self.live_bot_name = None
 
     def _begin_dealer_turn(self):
         self.phase = "dealer"
@@ -390,23 +534,61 @@ class BlackjackTournament:
         self.history.append(self.dealer_hand[1])
         dealer_total = hand_value(self.dealer_hand)
         self._log(f"Dīlera kārtis: {self._format_hand(self.dealer_hand)} ({dealer_total}).")
-        self._draw_table()
+        self._render_live_state()
         if self.auto_dealer_var.get():
-            while hand_value(self.dealer_hand) < 17:
-                self.dealer_hand.append(self._draw_card(visible=True))
-            self._settle_round()
+            self._dealer_auto_step()
         else:
-            self.hit_button.configure(state="normal")
+            self.hit_button.configure(
+                state="normal" if dealer_total < 17 else "disabled"
+            )
             self.stand_button.configure(state="normal")
             self._set_status("Dīlera gājiens: ņemiet kārti vai stājieties.")
 
-    def dealer_hit(self):
-        if self.phase != "dealer":
+    def _advance_bot_action(self):
+        self.animation_after_id = None
+        if self.bot_action_iterator is None:
+            return
+        try:
+            next(self.bot_action_iterator)
+        except StopIteration:
+            self.bot_action_iterator = None
+            self.live_bot_name = None
+            self._begin_dealer_turn()
+            return
+        self.animation_after_id = self.root.after(
+            self.settings.get("step_ms", 0),
+            self._advance_bot_action,
+        )
+
+    def _dealer_auto_step(self):
+        self.animation_after_id = None
+        if hand_value(self.dealer_hand) >= 17:
+            self._settle_round()
             return
         self.dealer_hand.append(self._draw_card(visible=True))
         total = hand_value(self.dealer_hand)
         self._log(f"Dīleris paņēma kārti; punktu summa: {total}.")
-        self._draw_table()
+        self._render_live_state()
+        if getattr(self, "root", None) is None:
+            self._dealer_auto_step()
+        else:
+            self.animation_after_id = self.root.after(
+                self.settings.get("step_ms", 0),
+                self._dealer_auto_step,
+            )
+
+    def dealer_hit(self):
+        if self.phase != "dealer":
+            return
+        if hand_value(self.dealer_hand) >= 17:
+            self._record_dealer_deviation(
+                "mēģināja ņemt kārti, lai gan punktu summa jau bija 17 vai vairāk."
+            )
+            return
+        self.dealer_hand.append(self._draw_card(visible=True))
+        total = hand_value(self.dealer_hand)
+        self._log(f"Dīleris paņēma kārti; punktu summa: {total}.")
+        self._render_live_state()
         if total >= 17:
             self.dealer_stand()
         else:
@@ -415,7 +597,16 @@ class BlackjackTournament:
     def dealer_stand(self):
         if self.phase != "dealer":
             return
+        if hand_value(self.dealer_hand) < 17:
+            self._record_dealer_deviation(
+                "apstājās zem 17 punktiem; manuāla novirze no turnīra noteikumiem."
+            )
         self._settle_round()
+
+    def _record_dealer_deviation(self, message: str):
+        self.dealer_rule_violations += 1
+        self._log(f"Dīlera noteikumu novirze: {message}")
+        self._refresh_audit_status()
 
     def _settle_round(self):
         self.phase = "round_done"
@@ -447,8 +638,16 @@ class BlackjackTournament:
                     f"{bot.name}: {self._format_hand(hand['cards'])} — {result}, "
                     f"likme {hand['bet']}, čipi {self._format_chips(bot.bankroll)}."
                 )
+            if bot.bankroll < 10 and bot.eliminated_at is None:
+                bot.eliminated_at = self.round_number
+                self._log(
+                    f"{bot.name} izstājās pēc {self.round_number}. partijas "
+                    f"({self._format_chips(bot.bankroll)} čipi)."
+                )
+        self.live_bot_name = None
         self._refresh_scoreboard()
         self._draw_table()
+        self._refresh_audit_status()
         self._set_status(
             f"Partija {self.round_number}/{self.settings['rounds']} pabeigta. "
             f"Dīlerim {dealer_total}{' (bust)' if dealer_bust else ''}."
@@ -504,8 +703,11 @@ class BlackjackTournament:
         if not self.bots:
             self._set_status("Turnīrs beidzies; nav derīgu botu.")
             return
-        highest = max(bot.bankroll for bot in self.bots)
-        winners = [bot.name for bot in self.bots if bot.bankroll == highest]
+        best_key = max(self._leader_key(bot) for bot in self.bots)
+        highest = best_key[0]
+        winners = [
+            bot.name for bot in self.bots if self._leader_key(bot) == best_key
+        ]
         outcome = ", ".join(winners) if len(winners) > 1 else winners[0]
         self._set_status(
             f"Turnīrs beidzies pēc {self.round_number} partijām. "
@@ -517,13 +719,58 @@ class BlackjackTournament:
     def _refresh_scoreboard(self):
         for item in self.score_tree.get_children():
             self.score_tree.delete(item)
-        ranked = sorted(self.bots, key=lambda bot: bot.bankroll, reverse=True)
-        for bot in ranked:
-            status = "Spēlē" if bot.bankroll >= 10 else "Izstājies"
+        for rank, bot in enumerate(self._ranked_bots(), start=1):
+            survived = self._survival_round(bot)
+            if bot.eliminated_at is not None:
+                status = f"Izstājās {bot.eliminated_at}. kārtā"
+            elif self.round_number:
+                status = "Spēlē"
+            else:
+                status = "Gatavs"
             self.score_tree.insert(
                 "", "end",
-                values=(bot.name, self._format_chips(bot.bankroll), status),
+                values=(
+                    rank,
+                    bot.name,
+                    self._format_chips(bot.bankroll),
+                    survived,
+                    status,
+                ),
             )
+
+    def _survival_round(self, bot: BotPlayer) -> int:
+        return (
+            bot.eliminated_at
+            if bot.eliminated_at is not None
+            else self.round_number
+        )
+
+    def _leader_key(self, bot: BotPlayer) -> tuple[float, int]:
+        return bot.bankroll, self._survival_round(bot)
+
+    def _ranked_bots(self) -> list[BotPlayer]:
+        return sorted(self.bots, key=self._leader_key, reverse=True)
+
+    def _refresh_audit_status(self):
+        if not hasattr(self, "audit_var"):
+            return
+        deck_count = self.settings.get("decks", 4)
+        public_check = audit_public_history(self.history, deck_count)
+        survivors = sum(bot.bankroll >= 10 for bot in self.bots)
+        self.audit_var.set(
+            f"Publiskā kurpe: {public_check} | Jaukšanas: {self.shuffle_count} "
+            f"(agrās: {self.early_shuffle_count}); dīlera noteikumu novirzes: "
+            f"{self.dealer_rule_violations}; spēlē: {survivors}/{len(self.bots)}. "
+            "Audits vērtē tikai redzamās kārtis un šīs demonstrācijas gājienus."
+        )
+
+    def _render_live_state(self):
+        self._refresh_scoreboard()
+        self._refresh_audit_status()
+        self._draw_table()
+        root = getattr(self, "root", None)
+        if root is not None:
+            root.update_idletasks()
 
     @staticmethod
     def _format_chips(chips: float) -> str:
@@ -547,12 +794,45 @@ class BlackjackTournament:
         count = max(1, len(self.bots))
         columns = max(1, min(count, width // 190))
         cell_width = width // columns
+        ranked = self._ranked_bots()
+        positions = {id(bot): rank for rank, bot in enumerate(ranked, start=1)}
         for index, bot in enumerate(self.bots):
             row, column = divmod(index, columns)
             x = column * cell_width + cell_width // 2
             y = 185 + row * 150
-            label = f"{bot.name}  |  {self._format_chips(bot.bankroll)} čipi"
-            self.table.create_text(x, y, text=label, fill="white", font=("Segoe UI", 10, "bold"))
+            active = bot.name == self.live_bot_name
+            tile_left = column * cell_width + 5
+            tile_top = y - 15
+            tile_bottom = y + 132
+            self.table.create_rectangle(
+                tile_left,
+                tile_top,
+                tile_left + cell_width - 10,
+                tile_bottom,
+                fill="#105638" if active else "#155d3c",
+                outline="#f2c14e" if active else "#2b8058",
+                width=3 if active else 1,
+            )
+            state = (
+                f"LIVE H{self.live_hand_index + 1}: {bot.last_action}"
+                if active
+                else (
+                    f"OUT R{bot.eliminated_at}"
+                    if bot.eliminated_at is not None
+                    else bot.last_action
+                )
+            )
+            label = (
+                f"#{positions[id(bot)]} {bot.name}  |  "
+                f"{self._format_chips(bot.bankroll)} čipi  |  {state}"
+            )
+            self.table.create_text(
+                x,
+                y,
+                text=label,
+                fill="#ffe08a" if active else "white",
+                font=("Segoe UI", 9, "bold"),
+            )
             cards = []
             if bot.hands:
                 for hand in bot.hands:
