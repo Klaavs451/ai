@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import random
 import unittest
+from unittest.mock import Mock
 
+from app import BlackjackApp
 from bot import (
     BOT_NAME,
     analyze_bet,
@@ -15,6 +17,7 @@ from bot import (
     running_count,
 )
 from game import (
+    PlayerHand,
     compare_hands,
     create_shoe,
     dealer_should_hit,
@@ -95,6 +98,36 @@ class BlackjackBotTests(unittest.TestCase):
         self.assertEqual(compare_hands(["TS", "6D"], ["TH", "7C"]), "loss")
         self.assertEqual(compare_hands(["TS", "7D"], ["TH", "7C"]), "push")
         self.assertEqual(compare_hands(["TS", "8D", "5C"], ["TH", "7C"]), "loss")
+
+
+class BlackjackAppTests(unittest.TestCase):
+    def test_splitting_pair_draws_cards_and_schedules_next_bot_turn(self) -> None:
+        app = BlackjackApp.__new__(BlackjackApp)
+        hand = PlayerHand(["2D", "2H"], 10)
+        app.player_hands = [hand]
+        app.active_hand_index = 0
+        app.bankroll = 990
+        app.shoe = ["3C", "4D"]
+        app.history = []
+        app.last_action = ""
+        app.last_reason = ""
+        app.current_bet = 0
+        app.root = Mock()
+        app._set_status = Mock()
+        app._record_event = Mock()
+        app._refresh_analysis = Mock()
+        app._render_table = Mock()
+        app._display_card = lambda card: card
+
+        app._split_active_hand(hand)
+
+        self.assertEqual(
+            [item.cards for item in app.player_hands],
+            [["2D", "4D"], ["2H", "3C"]],
+        )
+        self.assertEqual(app.history, ["4D", "3C"])
+        self.assertEqual(app.bankroll, 980)
+        app.root.after.assert_called_once_with(550, app._bot_turn)
 
 
 if __name__ == "__main__":

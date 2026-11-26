@@ -9,6 +9,7 @@ from bot import (
     BOT_NAME,
     analyze_bet,
     analyze_decision,
+    card_value,
     decide_action,
     estimate_true_count,
     hand_value,
