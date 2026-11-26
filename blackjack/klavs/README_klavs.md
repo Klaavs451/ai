@@ -18,7 +18,9 @@ python blackjack\klavs\app.py
 Hi-Lo kāršu skaitīšanu no publiski redzamās vēstures un agresīvu likmju
 izkliedi: no 10 līdz 200 žetoniem atkarībā no true count. Pie negatīva vai
 zema skaita tas paliek pie minimuma; likmi nepalielina tikai tāpēc, ka zaudēja.
-Lielākas likmes palielina gan iespējamo laimestu, gan zaudējuma risku.
+Maksimālā likme ir 20% no pašreizējā bankroll (noapaļota uz leju līdz 10
+žetoniem), tāpēc tā sarūk, ja bankroll samazinās. Lielākas likmes palielina gan
+iespējamo laimestu, gan zaudējuma risku.
 `game.py` un `app.py` veido vietējo demonstrāciju ar 4 kavu kopējo kurpi,
 dīleri un likmēm.
 

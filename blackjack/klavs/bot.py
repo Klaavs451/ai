@@ -97,7 +97,7 @@ def analyze_bet(
 ) -> BetInsight:
     running = running_count(history)
     true = estimate_true_count(history, decks_remaining)
-    bankroll_limit = max(10, min(200, bankroll))
+    bankroll_limit = max(10, min(200, (bankroll // 50) * 10))
     if true < 0.5:
         units = 1
     elif true < 1.0:
@@ -115,7 +115,8 @@ def analyze_bet(
     amount = min(bankroll_limit, units * 10)
     reason = (
         f"Hi-Lo running count {running:+d}, true count {true:+.1f}; "
-        f"betting {amount} chips ({units} units)."
+        f"betting {amount} chips ({amount // 10} units, "
+        f"bankroll cap {bankroll_limit})."
     )
     return BetInsight(amount, running, true, reason)
 

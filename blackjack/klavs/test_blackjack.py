@@ -59,6 +59,15 @@ class BlackjackBotTests(unittest.TestCase):
         self.assertEqual(place_bet(1000, ["2H", "3H"], 4.0), 30)
         self.assertEqual(place_bet(1000, ["2H", "3H", "4H", "5H"], 4.0), 50)
 
+    def test_bankroll_drawdown_reduces_aggressive_bet_limit(self) -> None:
+        low_cards = [f"{rank}{suit}" for rank in "23456" for suit in "HDCS"]
+        for bankroll, expected_bet in ((1000, 200), (800, 160), (500, 100), (49, 10)):
+            with self.subTest(bankroll=bankroll):
+                self.assertEqual(
+                    place_bet(bankroll, low_cards, 3.6),
+                    expected_bet,
+                )
+
     def test_pair_splitting_and_double_decisions(self) -> None:
         self.assertEqual(decide_action(["8S", "8D"], "6C", [], False, True), "SPLIT")
         self.assertEqual(decide_action(["5S", "5D"], "6C", [], True, True), "DOUBLE")
