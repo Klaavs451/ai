@@ -98,7 +98,20 @@ def analyze_bet(
     running = running_count(history)
     true = estimate_true_count(history, decks_remaining)
     bankroll_limit = max(10, min(200, bankroll))
-    units = max(1, min(20, 1 + int(max(0.0, true) * 2)))
+    if true < 0.5:
+        units = 1
+    elif true < 1.0:
+        units = 3
+    elif true < 1.5:
+        units = 5
+    elif true < 2.0:
+        units = 8
+    elif true < 2.5:
+        units = 12
+    elif true < 3.0:
+        units = 16
+    else:
+        units = 20
     amount = min(bankroll_limit, units * 10)
     reason = (
         f"Hi-Lo running count {running:+d}, true count {true:+.1f}; "

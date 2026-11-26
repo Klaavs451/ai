@@ -15,8 +15,12 @@ python blackjack\klavs\app.py
 ```
 
 `bot.py` īsteno pasniedzēja API: `place_bet` un `decide_action`. Bots izmanto
-Hi-Lo kāršu skaitīšanu no publiski redzamās vēstures. `game.py` un `app.py`
-veido vietējo demonstrāciju ar 4 kavu kopējo kurpi, dīleri un likmēm.
+Hi-Lo kāršu skaitīšanu no publiski redzamās vēstures un agresīvu likmju
+izkliedi: no 10 līdz 200 žetoniem atkarībā no true count. Pie negatīva vai
+zema skaita tas paliek pie minimuma; likmi nepalielina tikai tāpēc, ka zaudēja.
+Lielākas likmes palielina gan iespējamo laimestu, gan zaudējuma risku.
+`game.py` un `app.py` veido vietējo demonstrāciju ar 4 kavu kopējo kurpi,
+dīleri un likmēm.
 
 Demonstrācija ir viena bota pret dīleri; pasniedzēja turnīrā boti dalīs vienu
 kopēju kurpi un `history` ietvers arī citu botu atklātās kārtis.

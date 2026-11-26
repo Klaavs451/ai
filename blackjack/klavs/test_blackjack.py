@@ -54,6 +54,11 @@ class BlackjackBotTests(unittest.TestCase):
         self.assertLessEqual(favorable_bet, 200)
         self.assertLessEqual(place_bet(35, low_cards, 3.6), 35)
 
+    def test_aggressive_bet_spread_uses_true_count_thresholds(self) -> None:
+        self.assertEqual(place_bet(1000, ["TH", "AS"], 4.0), 10)
+        self.assertEqual(place_bet(1000, ["2H", "3H"], 4.0), 30)
+        self.assertEqual(place_bet(1000, ["2H", "3H", "4H", "5H"], 4.0), 50)
+
     def test_pair_splitting_and_double_decisions(self) -> None:
         self.assertEqual(decide_action(["8S", "8D"], "6C", [], False, True), "SPLIT")
         self.assertEqual(decide_action(["5S", "5D"], "6C", [], True, True), "DOUBLE")
