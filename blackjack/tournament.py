@@ -230,14 +230,12 @@ class BlackjackTournament:
         self.fast_mode_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             settings,
-            text="Ātrā simulācija (bez kameru animācijas)",
+            text="Ātrā simulācija (bez katra gājiena animācijas)",
             variable=self.fast_mode_var,
         ).grid(row=1, column=0, columnspan=2, padx=4, sticky="w")
         batch_frame = ttk.Frame(settings)
         batch_frame.grid(row=1, column=2, padx=4, sticky="w")
-        ttk.Label(batch_frame, text="Raundi starp ekrāna atjauninājumiem").pack(
-            anchor="w"
-        )
+        ttk.Label(batch_frame, text="Kārtis/žurnāls ik pēc N raundiem").pack(anchor="w")
         ttk.Spinbox(
             batch_frame,
             textvariable=self.vars["batch_size"],
@@ -682,14 +680,17 @@ class BlackjackTournament:
                     f"({self._format_chips(bot.bankroll)} čipi)."
                 )
         self.live_bot_name = None
-        if not self.fast_batch_active:
-            self._refresh_scoreboard()
-            self._draw_table()
-            self._refresh_audit_status()
         self._set_status(
             f"Partija {self.round_number}/{self.settings['rounds']} pabeigta. "
             f"Dīlerim {dealer_total}{' (bust)' if dealer_bust else ''}."
         )
+        if self.fast_batch_active:
+            self._refresh_scoreboard()
+            self.root.update_idletasks()
+        else:
+            self._refresh_scoreboard()
+            self._draw_table()
+            self._refresh_audit_status()
         if self.auto_running and not self.fast_batch_active:
             self._schedule_next_round()
         elif self._tournament_complete():

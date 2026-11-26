@@ -19,8 +19,9 @@ python blackjack\klavs\app.py
 Visu atrasto Blackjack botu turnīra skats ar dzīvajām botu kamerām un
 līdertabulu. Ātrai simulācijai iestati raundu skaitu (līdz 1 000 000),
 ieslēdz “Ātrā simulācija” un izvēlies, cik raundus izpildīt starp ekrāna
-atjauninājumiem. Ātrajam režīmam nepieciešams automātisks dīleris; tas izlaiž
-katra gājiena animāciju, bet beigās parāda līdertabulu un pēdējo palikušo botu.
+pilnajiem atjauninājumiem. Punktu tabula atjaunojas katra raunda beigās;
+kārtis un žurnāls — pēc iestatītā raundu bloka. Ātrajam režīmam vajadzīgs
+automātisks dīleris; tas izlaiž katra gājiena animāciju.
 “Turpināt līdz pēdējam botam” ir ieslēgts pēc noklusējuma; simulācija beidzas,
 kad paliek viens bots vai sasniegts maksimālais raundu skaits.
 

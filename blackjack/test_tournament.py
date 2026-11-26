@@ -104,13 +104,14 @@ class RoundTests(unittest.TestCase):
     class Scheduler:
         def __init__(self):
             self.callbacks = []
+            self.update_count = 0
 
         def after(self, _delay, callback):
             self.callbacks.append(callback)
             return str(len(self.callbacks))
 
         def update_idletasks(self):
-            pass
+            self.update_count += 1
 
     def run_round(self, draw_order, decide_action, place_bet=None, bankroll=100):
         from .tournament import BlackjackTournament
@@ -238,7 +239,8 @@ class RoundTests(unittest.TestCase):
         self.assertEqual(app.round_number, 1000)
         self.assertEqual(app.phase, "finished")
         self.assertEqual(app._draw_table.call_count, 1)
-        self.assertEqual(app._refresh_scoreboard.call_count, 1)
+        self.assertEqual(app._refresh_scoreboard.call_count, 1001)
+        self.assertEqual(app.root.update_count, 1001)
         self.assertEqual(len(app.root.callbacks), 0)
 
     def test_fast_mode_stops_when_one_bot_is_left(self):
